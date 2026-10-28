@@ -87,6 +87,54 @@ test('a chapter that fails stops only itself, and a retry continues there', asyn
   assert.deepEqual(again.calls.map((c) => c.step), ['fix'], 'chapter 1 is not written again, nor the outline');
 });
 
+test('a chapter written ahead is kept when the one before it fails', async () => {
+  const broken = chapterAnswer('One neuron', '# BROKEN');
+  const { ask, calls } = fakeAsk({ outline: [OUTLINE], chapter: [broken, chapterAnswer('The chain rule')], fix: [broken, broken] });
+  await assert.rejects(createAuthor({ getConfig: box.getConfig, ask }).write({ project: 'c-ahead', ...BRIEF }), /still fail after 2 fixes/);
+  assert.deepEqual(calls.map((c) => c.step), ['outline', 'chapter', 'chapter', 'fix', 'fix'], 'chapter 2 was written while chapter 1 was checked');
+  assert.ok(box.exists('c-ahead', 'chapters/02-chain/scenes.py'), 'and saved in its folder');
+  assert.ok(!box.exists('c-ahead', 'chapters/02-chain/author.json'), 'though not yet checked');
+
+  const again = fakeAsk({ fix: [chapterAnswer('One neuron')] });
+  const result = await createAuthor({ getConfig: box.getConfig, ask: again.ask }).write({ project: 'c-ahead' });
+  assert.equal(result.phase, 'chapters');
+  assert.deepEqual(again.calls.map((c) => c.step), ['fix'], 'the retry does not write chapter 2 again');
+});
+
+test('a chapter written ahead that lands after its job failed does not overwrite what a retry wrote', async () => {
+  const broken = chapterAnswer('One neuron', '# BROKEN');
+  let land;
+  const late = new Promise((resolve) => (land = resolve));
+  const { ask: base } = fakeAsk({ outline: [OUTLINE], chapter: [broken], fix: [broken, broken] });
+  const ask = (args) => (/Write chapter 2 of 2/.test(args.prompt) ? late.then(() => ({ answer: chapterAnswer('The chain rule', '# LATE'), costUsd: 0, usage: {} })) : base(args));
+  await assert.rejects(createAuthor({ getConfig: box.getConfig, ask }).write({ project: 'c-late', ...BRIEF }), /still fail after 2 fixes/);
+  const dir = path.join(box.project('c-late'), 'chapters', '02-chain');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'scenes.py'), '# the retry wrote this');
+  land();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(fs.readFileSync(path.join(dir, 'scenes.py'), 'utf8'), '# the retry wrote this');
+});
+
+test('a chapter that comes back with almost no narration is refused, and written again if it was written ahead', async () => {
+  const notice = { title: 'Not generated', script: '[notice]\nThis chapter was not generated.\n', scenes: scenes() };
+  const long = (title) => ({ ...chapterAnswer(title), script: `[intro]\n${'word '.repeat(300)}<mark name="slope"/>slope.\n` });
+  box.config.authorMinNarration = 0.4;
+  try {
+    const first = fakeAsk({ outline: [OUTLINE], chapter: [notice] });
+    await assert.rejects(createAuthor({ getConfig: box.getConfig, ask: first.ask }).write({ project: 'c-refused', ...BRIEF }), /Chapter 1, “One neuron”, came back with 5 words of narration where about 600 were planned/);
+    assert.ok(!box.exists('c-refused', 'chapters/01-one-neuron/script.txt'));
+
+    // Written ahead and refused: it is asked for again when its turn comes. Chapter 2 is 6 minutes: 900 words planned.
+    const second = fakeAsk({ outline: [OUTLINE], chapter: [long('One neuron'), notice, { ...long('The chain rule'), script: `[intro]\n${'word '.repeat(400)}\n` }] });
+    const result = await createAuthor({ getConfig: box.getConfig, ask: second.ask }).write({ project: 'c-refused-ahead', ...BRIEF });
+    assert.equal(result.phase, 'chapters');
+    assert.deepEqual(second.calls.map((c) => c.step), ['outline', 'chapter', 'chapter', 'chapter']);
+  } finally {
+    box.config.authorMinNarration = undefined;
+  }
+});
+
 test('an outline the person edited keeps its chapter ids', () => {
   const edited = normalizeOutline({ ...OUTLINE, chapters: [{ ...OUTLINE.chapters[1], id: '02-chain' }, { ...OUTLINE.chapters[0], id: '01-one-neuron', minutes: 40 }] });
   assert.deepEqual(edited.chapters.map((c) => [c.id, c.minutes]), [['02-chain', 6], ['01-one-neuron', 8]]);

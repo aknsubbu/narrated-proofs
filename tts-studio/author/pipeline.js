@@ -3,12 +3,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LESSON_SCHEMA } from './claude.js';
 import { AuthorError, run } from './proc.js';
-import { chapterPrompt, guide, lessonPrompt, outlinePrompt, readPrompt, repairPrompt, revisePrompt, scenesPrompt } from './prompts.js';
+import { chapterPrompt, guide, lessonPrompt, outlinePrompt, readPrompt, repairPrompt, revisePrompt, scenesPrompt, WORDS_PER_MINUTE } from './prompts.js';
 import { askWriter } from './writers/index.js';
 import { normalizeWriter, sameModel, who } from './writers/plan.js';
 import { createSecrets } from '../server/secrets.js';
 import { pageTexts } from '../server/pdf.js';
 import { CHAPTERS_FROM, MAX_CHAPTERS } from '../shared/limits.js';
+import { EFFORTS } from '../shared/providers.js';
 
 export const PROJECT_NAME = /^[A-Za-z0-9_-]{1,80}$/;
 const HEADER = ['from manimlib import *', 'from voiceover import VoiceoverScene'];
@@ -212,6 +213,43 @@ export function outsideScope(scope, changed, before) {
   return out;
 }
 
+/** The words of narration in a script.txt, without its [id] lines and marks. */
+export function narrationWords(script) {
+  return String(script || '')
+    .split('\n')
+    .filter((l) => !/^\s*\[[^\]]*\]\s*$/.test(l))
+    .join(' ')
+    .replace(/<[^>]*>/g, ' ')
+    .split(/\s+/)
+    .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}
+
+/**
+ * Refuse a draft with far less narration than `minutes` of video needs. A model that declines
+ * part way can still return a well-formed lesson, a notice saying it was not written, and that
+ * passes every check. `share` is config.authorMinNarration; 0 never refuses.
+ */
+export function checkNarration(script, minutes, share, what = 'The lesson') {
+  if (!share || !(Number(minutes) > 0)) return;
+  const planned = Math.round(Number(minutes) * WORDS_PER_MINUTE);
+  const words = narrationWords(script);
+  if (words >= planned * share) return;
+  const text = String(script).split('\n').filter((l) => l.trim() && !/^\s*\[[^\]]*\]\s*$/.test(l)).join(' ').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  throw new AuthorError(
+    `${what} came back with ${words} words of narration where about ${planned} were planned, so it was not kept.${text ? ` It begins: “${text.length > 160 ? `${text.slice(0, 157)}…` : text}”` : ''} Press Retry to have it written again, or change the notes or the writer if it keeps happening.`,
+  );
+}
+
+/** What a set of errors is, so a fix round can tell whether the last fix changed anything. */
+const errorKey = (errors) => errors.map((e) => `${e.where}|${String(e.message).trim().split('\n').pop()}`).sort().join('\n');
+
+/** One step more effort than `effort`, up to high; an effort left to the provider stays so. */
+export function moreEffort(effort, steps = 1) {
+  const at = EFFORTS.indexOf(effort);
+  if (at < 0 || steps <= 0) return effort;
+  return EFFORTS[Math.max(at, Math.min(at + steps, EFFORTS.indexOf('high')))];
+}
+
 /** True when every warning is an animation running less than half a second long: not worth a request. */
 export function onlySmallOverruns(warnings) {
   return warnings.length > 0 && warnings.every((w) => {
@@ -393,7 +431,13 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
         let failedFixes = 0;
         let allowed = config.authorMaxFixes;
         let unusable = null; // why the last answer could not be applied, told to the next round
-        const fixer = () => (handedBack ? { ...main, effort: plan.steps.fix.effort } : plan.steps.fix);
+        // A fix that leaves the same errors makes the next one think harder, a step at a time up to high.
+        let lastErrors = null;
+        let harder = 0;
+        const fixer = () => {
+          const w = handedBack ? { ...main, effort: plan.steps.fix.effort } : plan.steps.fix;
+          return harder ? { ...w, effort: moreEffort(w.effort, harder) } : w;
+        };
         while (!report.ok) {
           if (!unusable && (await tryAutofix(report))) {
             report = await inspect('Checking the automatic fixes');
@@ -401,6 +445,8 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
           }
           if (canHandBack && !handedBack && failedFixes >= plan.handBack.after) {
             handedBack = true;
+            harder = 0; // the main writer starts at the fix effort, like the first
+            lastErrors = null;
             allowed = fixes + config.authorMaxFixes;
             stage(`Handing the fixes back to ${who(main)}`);
           }
@@ -411,8 +457,12 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
             );
           }
           fixes += 1;
+          const key = errorKey(report.errors);
+          if (key === lastErrors) harder += 1;
+          lastErrors = key;
           const w = fixer();
-          stage(`Fixing the scenes (${fixes} of ${allowed})${sameModel(w, main) ? '' : ` with ${who(w)}`}`);
+          const raised = harder && w.effort !== plan.steps.fix.effort;
+          stage(`Fixing the scenes (${fixes} of ${allowed})${sameModel(w, main) ? '' : ` with ${who(w)}`}${raised ? `, thinking harder (${w.effort})` : ''}`);
           const errors = unusable ? [{ where: 'your last answer', message: `It could not be applied: ${unusable}` }, ...report.errors] : report.errors;
           let applied;
           try {
@@ -459,7 +509,9 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
           const after = changed ? await inspect('Checking the polish') : report;
           // A visual review may fix what no warning names, so it only has to break nothing.
           const better = stills.length ? after.warnings.length <= report.warnings.length : after.warnings.length < report.warnings.length;
-          if (changed && after.ok && better) {
+          // A polish that leaves little of the narration is a refusal written over the lesson, however well it checks.
+          const kept = narrationWords(read('script.txt')) >= narrationWords(before['script.txt'].toString()) * (Number(config.authorMinNarration) || 0);
+          if (changed && after.ok && better && kept) {
             report = after;
             polished = true;
           } else {
@@ -555,10 +607,14 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
       if (phase === 'script') {
         onStage(send.length ? 'Reading the notes and writing the narration' : 'Writing the narration');
         const answer = await s.consult('write', writer, lessonPrompt({ ...brief, notes, attachments: send, phase }), send, SCRIPT_SCHEMA);
-        s.saveDraft({ title: answer.title.replace(/\s+/g, ' ').trim().slice(0, 120), script: `${stripFence(answer.script).trim()}\n`, scenes: null }, brief.voice);
+        const script = `${stripFence(answer.script).trim()}\n`;
+        checkNarration(script, brief.minutes, s.config.authorMinNarration, 'The narration');
+        s.saveDraft({ title: answer.title.replace(/\s+/g, ' ').trim().slice(0, 120), script, scenes: null }, brief.voice);
       } else {
         onStage(send.length ? 'Reading the notes and writing the lesson' : 'Writing the lesson');
-        s.saveDraft(normalizeDraft(await s.consult('write', writer, lessonPrompt({ ...brief, notes, attachments: send }), send)), brief.voice);
+        const draft = normalizeDraft(await s.consult('write', writer, lessonPrompt({ ...brief, notes, attachments: send }), send));
+        checkNarration(draft.script, brief.minutes, s.config.authorMinNarration);
+        s.saveDraft(draft, brief.voice);
       }
     }
     if (phase === 'script') {
@@ -629,7 +685,18 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
       const shown = [...files, ...(previous?.still ? [previous.still] : [])];
       return s.consult('write', writer, chapterPrompt({ brief, outline, index: i, colors, previous, attachments: files }), shown, LESSON_SCHEMA, undefined, `ch${nn(i)}-write`);
     };
-    const ahead = new Map(); // chapter index -> its answer, written while the one before was checked
+    const chapterAt = (i) => s.at(dirOf(i), { prefix: `Chapter ${i + 1} of ${n}: `, logPrefix: `ch${nn(i)}-` });
+    // Written and saved in its folder at once, so a chapter written ahead is kept if the one before it fails.
+    const draftChapter = async (i, previous) => {
+      const c = outline.chapters[i];
+      const draft = { ...normalizeDraft(await writeChapter(i, previous)), title: c.title };
+      checkNarration(draft.script, c.minutes, config.authorMinNarration, `Chapter ${i + 1}, “${c.title}”,`);
+      // A job that failed leaves its lookahead running; landing after a retry wrote the chapter, it is not used.
+      if (['script.txt', 'scenes.py'].some((f) => fs.existsSync(path.join(dirOf(i), f)))) return;
+      fs.mkdirSync(dirOf(i), { recursive: true });
+      chapterAt(i).saveDraft(draft, brief.voice);
+    };
+    const ahead = new Map(); // chapter index -> its draft being written while the one before is checked
     const pipeline = (Number(config.authorParallel) || 1) > 1;
     const results = [];
     for (let i = 0; i < n; i += 1) {
@@ -641,15 +708,14 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
         continue;
       }
       fs.mkdirSync(dir, { recursive: true });
-      const ch = s.at(dir, { prefix: `Chapter ${i + 1} of ${n}: `, logPrefix: `ch${nn(i)}-` });
-      if (!FILES.every((f) => ch.has(f))) {
-        onStage(`Writing chapter ${i + 1} of ${n}: ${c.title}`);
-        const answer = ahead.has(i) ? await ahead.get(i) : await writeChapter(i, previousOf(i, true));
-        ch.saveDraft({ ...normalizeDraft(answer), title: c.title }, brief.voice);
-      }
+      const ch = chapterAt(i);
+      if (ahead.has(i) || !FILES.every((f) => ch.has(f))) onStage(`Writing chapter ${i + 1} of ${n}: ${c.title}`);
+      // A draft written ahead is in its folder by now; one that failed is written again here.
+      if (ahead.has(i)) await ahead.get(i).catch(() => {});
+      if (!FILES.every((f) => ch.has(f))) await draftChapter(i, previousOf(i, true));
       if (pipeline && i + 1 < n && !ahead.has(i + 1) && !fs.existsSync(path.join(dirOf(i + 1), 'scenes.py'))) {
-        const next = writeChapter(i + 1, { title: c.title, script: ch.read('script.txt'), still: null });
-        next.catch(() => {}); // if this chapter fails, the next one's answer is simply not used
+        const next = draftChapter(i + 1, { title: c.title, script: ch.read('script.txt'), still: null });
+        next.catch(() => {}); // awaited when its turn comes; if this chapter fails first, a retry finds it saved
         ahead.set(i + 1, next);
       }
       const notation = ch.read('scenes.py').includes(colors) ? null : `Chapter ${i + 1} does not use the outline's COLORS line word for word, so its colours may differ.`;

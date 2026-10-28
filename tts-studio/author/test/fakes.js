@@ -7,7 +7,7 @@ import path from 'node:path';
  * it was asked to <dir>/asked.jsonl. An answer may be:
  *   { title, script, scenes }   a normal answer
  *   { raw: "text" }             printed as is (not JSON)
- *   { error: "message" }        a result with is_error set
+ *   { error: "message" }        a result with is_error set (with `cost`, what it says it cost)
  *   { hang: true }              starts a child and never answers, to be cancelled
  */
 const FAKE_CLAUDE = `#!/usr/bin/env node
@@ -46,7 +46,7 @@ process.stdin.on('data', (d) => (stdin += d)).on('end', () => {
   }
   if (next.raw !== undefined) return console.log(next.raw);
   const result = next.error
-    ? { type: 'result', subtype: 'error_during_execution', is_error: true, result: next.error }
+    ? { type: 'result', subtype: 'error_during_execution', is_error: true, result: next.error, ...(next.cost ? { total_cost_usd: next.cost } : {}) }
     : {
         type: 'result', subtype: 'success', is_error: false, result: JSON.stringify(next), structured_output: next, total_cost_usd: 0.25, duration_ms: 1200,
         usage: { input_tokens: 900, cache_read_input_tokens: 6000, cache_creation_input_tokens: 0, output_tokens: 4000 },

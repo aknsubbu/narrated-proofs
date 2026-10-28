@@ -243,7 +243,8 @@ All optional. Put them in `.env` here or one folder up, or in the environment. C
 | `TTS_CLAUDE_READ_EFFORT`, `_OUTLINE_EFFORT` | `medium` | Reading notes; outlines |
 | `TTS_CLAUDE_TIMEOUT_MIN` | `20` | Minutes one request may take |
 | `TTS_AUTHOR_MAX_COST_USD` | Settings ($15) | Cost at which a lesson stops |
-| `TTS_AUTHOR_FIXES` | `3` | Fix rounds |
+| `TTS_AUTHOR_FIXES` | `3` | Fix rounds; one that leaves the same error makes the next think harder, up to `high` |
+| `TTS_AUTHOR_MIN_NARRATION` | `0.4` | A draft with less narration than this share of the planned length is refused (often a refusal written up as a lesson); `0` never |
 | `TTS_AUTHOR_POLISH` | `1` | `0` skips the polish round |
 | `TTS_AUTHOR_VISUAL_REVIEW` | `0` | `1` shows stills in the polish round for every lesson |
 | `TTS_AUTHOR_PARALLEL` | `2` | Lessons written at once; checks take turns |

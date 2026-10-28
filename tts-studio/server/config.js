@@ -79,6 +79,9 @@ export function loadConfig() {
     authorMaxFixes: Number(pick('TTS_AUTHOR_FIXES', 3)), // rounds of "here is the error, fix it"
     authorPolish: String(pick('TTS_AUTHOR_POLISH', '1')) !== '0', // one more round for timing and layout warnings
     authorVisualReview: String(pick('TTS_AUTHOR_VISUAL_REVIEW', '0')) === '1', // show Claude its own frames in that round
+    // A draft with less narration than this share of what was planned is refused, not kept: it is
+    // usually a refusal written up as a lesson. Written lessons come in at 0.8 or more; 0 turns it off.
+    authorMinNarration: Math.min(1, Math.max(0, Number(pick('TTS_AUTHOR_MIN_NARRATION', 0.4)) || 0)),
     authorAutofix: pick('TTS_AUTHOR_AUTOFIX', '') ? [String(pick('TTS_AUTHOR_AUTOFIX', '')).trim()] : null,
     authorParallel: Math.max(1, Number(pick('TTS_AUTHOR_PARALLEL', 2)) || 1), // requests to Claude at once
     notesImageEdge: Math.max(800, Number(pick('TTS_NOTES_IMAGE_EDGE', 1400)) || 1400), // pixels on a photo's long side

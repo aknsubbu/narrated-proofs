@@ -116,20 +116,22 @@ export function parseAnswer({ code, stdout, stderr }, schema = LESSON_SCHEMA, no
   // The last "result" event is the answer; a lone object without a type is taken as one.
   const result = all.findLast((m) => m?.type === 'result') || (all.length === 1 && !all[0].type ? all[0] : null);
   if (!result) throw new AuthorError('Claude finished without a result.');
+  // An answer that cannot be used still cost what the result says, and counts towards the caps.
+  const unusable = (message) => Object.assign(new AuthorError(message), { usage: readUsage(result) });
   if (result.is_error || (result.subtype && result.subtype !== 'success')) {
-    throw new AuthorError(`Claude could not answer: ${String(result.result || result.subtype).slice(0, 400)}`);
+    throw unusable(`Claude could not answer: ${String(result.result || result.subtype).slice(0, 400)}`);
   }
   let answer = result.structured_output;
   if (!answer) {
     try {
       answer = JSON.parse(String(result.result).replace(/^```(?:json)?\s*|\s*```$/g, ''));
     } catch {
-      throw new AuthorError('Claude answered, but not in the format asked for.');
+      throw unusable('Claude answered, but not in the format asked for.');
     }
   }
   for (const key of nonEmpty) {
-    if (typeof answer[key] !== 'string' || !answer[key].trim()) {
-      throw new AuthorError(`Claude's answer is missing “${key}”.`);
+    if (typeof answer?.[key] !== 'string' || !answer[key].trim()) {
+      throw unusable(`Claude's answer is missing “${key}”.`);
     }
   }
   return { answer, costUsd: Number(result.total_cost_usd) || 0, usage: readUsage(result) };

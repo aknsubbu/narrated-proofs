@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createAuthorJobs } from '../jobs.js';
 import { parseAnswer } from '../claude.js';
-import { createAuthor, normalizeDraft } from '../pipeline.js';
+import { checkNarration, createAuthor, moreEffort, narrationWords, normalizeDraft } from '../pipeline.js';
 import { fill, guide, lessonPrompt } from '../prompts.js';
 import { alive, answer, sandbox, scenes, SCRIPT, until } from './fakes.js';
 
@@ -193,6 +193,61 @@ test('each step asks with its own effort, and the tokens of every request are ke
   assert.ok(!box.asked()[0].argv.includes('--effort'), '"auto" leaves effort to Claude Code');
 });
 
+test('a fix that leaves the same error makes the next one think harder', async () => {
+  box.answers([answer('# BROKEN'), answer('# BROKEN 2'), answer('# BROKEN 3')]);
+  const stages = [];
+  await assert.rejects(author.write({ project: 'harder', ...BRIEF }, { onStage: (s) => stages.push(s) }), /still fail after 2 fixes/);
+  const effort = (a) => a.argv[a.argv.indexOf('--effort') + 1];
+  assert.deepEqual(box.asked().map(effort), ['high', 'low', 'medium'], 'write, fix, then the same error again');
+  assert.ok(stages.includes('Fixing the scenes (2 of 2), thinking harder (medium)'));
+  assert.ok(stages.includes('Fixing the scenes (1 of 2)'));
+});
+
+test('a request Claude could not answer still counts what it cost', async () => {
+  box.answers([{ error: 'Overloaded', cost: 0.4 }]);
+  await assert.rejects(author.write({ project: 'paid-failure', ...BRIEF }), /Claude could not answer: Overloaded/);
+  const used = JSON.parse(box.read('paid-failure', 'build/author/01-write-usage.json'));
+  assert.equal(used.failed, true);
+  assert.equal(used.costUsd, 0.4);
+  assert.equal(used.hostFunded, true, 'paid with the sign-in of the computer');
+  assert.deepEqual(JSON.parse(box.read('paid-failure', 'build/author/spent.json')), { usd: 0.4, hostUsd: 0.4 }, 'a retry continues from it');
+});
+
+test('a draft with far less narration than planned is not kept', async () => {
+  box.config.authorMinNarration = 0.4;
+  const words = (n) => `[intro]\n${'word '.repeat(n)}and <mark name="slope"/>slope.\n`;
+  try {
+    box.answers([answer('', { script: '[notice]\nThis lesson was not generated: it was stopped by a <mark name="check"/>safety check.\n' })]);
+    await assert.rejects(
+      author.write({ project: 'refused', ...BRIEF }),
+      /The lesson came back with 12 words of narration where about 150 were planned, so it was not kept\. It begins: “This lesson was not generated: it was stopped by a safety check\.”/,
+    );
+    assert.equal(box.exists('refused', 'script.txt'), false, 'a retry writes it again');
+    assert.equal(box.checked().length, 0, 'nor is it checked');
+
+    box.answers([answer('', { script: words(60) })]);
+    await author.write({ project: 'short-enough', ...BRIEF });
+
+    // The polish may answer with whole files: one that drops the narration is not kept, though it checks better.
+    box.answers([answer('# CROWDED CROWDED', { script: words(150) }), answer('# CROWDED', { script: '[intro]\nNot written. <mark name="slope"/>Sorry.\n' })]);
+    const result = await author.write({ project: 'polish-refused', ...BRIEF });
+    assert.equal(result.polished, false);
+    assert.match(box.read('polish-refused', 'script.txt'), /word word/);
+  } finally {
+    box.config.authorMinNarration = undefined;
+  }
+});
+
+test('narration is counted without block ids and marks', () => {
+  assert.equal(narrationWords('[intro]\nEvery line has a <mark name="slope"/>slope.\n\n[next]\n— and 2 more.\n'), 8);
+  assert.doesNotThrow(() => checkNarration('[a]\nshort', 1, 0), 'a share of 0 never refuses');
+  assert.throws(() => checkNarration('[a]\nshort', 1, 0.4, 'Chapter 2, “Heap”,'), /^Error: Chapter 2, “Heap”, came back with 1 words/);
+  assert.equal(moreEffort('low'), 'medium');
+  assert.equal(moreEffort('low', 5), 'high', 'never past high');
+  assert.equal(moreEffort('max', 1), 'max', 'never lowered');
+  assert.equal(moreEffort('', 1), '', 'an effort left to the provider stays so');
+});
+
 test('common mistakes are fixed without asking Claude', async () => {
   box.answers([answer('# FIXABLE')]);
   const stages = [];
@@ -276,6 +331,10 @@ test('parseAnswer reads one object or a list of events', () => {
   const text = { type: 'result', subtype: 'success', result: '```json\n' + JSON.stringify(good) + '\n```' };
   assert.deepEqual(parseAnswer({ code: 0, stdout: JSON.stringify(text), stderr: '' }).answer, good);
   assert.throws(() => parseAnswer({ code: 0, stdout: JSON.stringify({ type: 'result', subtype: 'success', result: 'Here you go!' }), stderr: '' }), /not in the format/);
+  // An answer that cannot be used still carries what it cost.
+  for (const bad of [{ type: 'result', is_error: true, result: 'Overloaded' }, { type: 'result', subtype: 'success', result: 'Here you go!' }, { type: 'result', subtype: 'success', structured_output: { title: 'T' } }]) {
+    assert.throws(() => parseAnswer({ code: 0, stdout: JSON.stringify({ ...bad, total_cost_usd: 0.3, usage: { output_tokens: 50 } }), stderr: '' }), (e) => e.usage.costUsd === 0.3 && e.usage.outputTokens === 50);
+  }
   assert.throws(() => parseAnswer({ code: 0, stdout: '[]', stderr: '' }), /did not answer/);
   assert.throws(() => parseAnswer({ code: 1, stdout: '', stderr: 'Not logged in' }), /did not answer \(exit 1\)\. Not logged in/);
 });

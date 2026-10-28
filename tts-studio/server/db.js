@@ -444,6 +444,8 @@ export function createStore(dataDir) {
       return owners;
     },
     countBySource: (source) => db.prepare('SELECT COUNT(*) AS n FROM generations WHERE source_name = ?').get(source).n,
+    /** Jobs a restart would interrupt, across every profile. */
+    inFlight: () => db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE status IN ('queued','processing')`).get().n,
     list,
     stats,
     tags,

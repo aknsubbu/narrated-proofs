@@ -3,7 +3,8 @@
 //   claude mcp add narrated-proofs -- node /path/to/tts-studio/mcp/stdio.js
 // It talks to the running dashboard (NARRATED_PROOFS_URL, default http://127.0.0.1:8787).
 // NARRATED_PROOFS_TOKEN makes it act as one profile (needed when several people share the dashboard).
-// With TTS_MCP_AUTOSTART=1 it starts the dashboard when it finds it not running.
+// With TTS_MCP_AUTOSTART=1 it starts the dashboard when it finds it not running, and restarts
+// one it started once that one runs older code than the folder and nothing is rendering.
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,12 @@ const baseUrl = (process.env.NARRATED_PROOFS_URL || DEFAULT_URL).replace(/\/+$/,
 
 async function startDashboard() {
   if (process.env.TTS_MCP_AUTOSTART !== '1') return false;
-  const child = spawn(process.execPath, [path.join(here, '..', 'server', 'index.js')], { cwd: path.join(here, '..'), detached: true, stdio: 'ignore' });
+  const child = spawn(process.execPath, [path.join(here, '..', 'server', 'index.js')], {
+    cwd: path.join(here, '..'),
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, TTS_STARTED_BY: 'mcp' }, // so a later connector may restart it
+  });
   child.unref();
   for (let i = 0; i < 40; i += 1) {
     await new Promise((r) => setTimeout(r, 500));
@@ -28,8 +34,24 @@ async function startDashboard() {
   return false;
 }
 
+const answers = () => fetch(`${baseUrl}/api/health`).then(() => true, () => false);
+
+/** Stop a dashboard this connector started that runs older code, and start it again. */
+async function restartDashboard(health) {
+  // `restart` is only sent to this computer, and only by a server a connector started.
+  if (process.env.TTS_MCP_AUTOSTART !== '1' || !health.restart || health.restart.busy) return null;
+  try {
+    process.kill(health.restart.pid, 'SIGTERM');
+  } catch {
+    return null;
+  }
+  for (let i = 0; i < 20 && (await answers()); i += 1) await new Promise((r) => setTimeout(r, 250));
+  if (await answers()) return null; // still up: leave it and say so instead
+  return (await startDashboard()) ? 'Restarted the Narrated Proofs dashboard, which was running older code than its folder.' : null;
+}
+
 // A blank field in the desktop extension arrives empty, or as the unfilled placeholder: both mean no token.
 const given = String(process.env.NARRATED_PROOFS_TOKEN || '').trim();
 const token = given && !given.startsWith('${') ? given : null;
-const server = createMcpServer({ baseUrl, token, onDown: startDashboard });
+const server = createMcpServer({ baseUrl, token, onDown: startDashboard, onStale: restartDashboard });
 await server.connect(new StdioServerTransport());

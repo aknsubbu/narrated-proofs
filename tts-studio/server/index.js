@@ -14,8 +14,10 @@ import { createSecrets } from './secrets.js';
 import { createSettings } from './settings.js';
 import { createProfiles } from './profiles.js';
 import { mcpHandler } from '../mcp/http.js';
+import { createCodeInfo } from './version.js';
 
 const cfg = loadConfig();
+const code = createCodeInfo({ startedBy: process.env.TTS_STARTED_BY === 'mcp' ? 'mcp' : null });
 const store = createStore(cfg.dataDir);
 const interrupted = store.markInterrupted();
 const engine = createEngine({ getConfig: loadConfig });
@@ -30,7 +32,7 @@ const runner = createRunner({ store, engine, video: createVideoBuilder({ getConf
 const jobs = createAuthorJobs({ getConfig: loadConfig, author: createAuthor({ getConfig: loadConfig, secrets }) });
 const lessons = createLessons({ store, runner, getConfig: loadConfig, jobs, versions, settings });
 lessons.settleInterrupted();
-const app = createApp({ getConfig: loadConfig, store, runner, engine, lessons, versions, settings, secrets, profiles, mcp: mcpHandler(), distDir: path.join(ROOT, 'dist') });
+const app = createApp({ getConfig: loadConfig, store, runner, engine, lessons, versions, settings, secrets, profiles, mcp: mcpHandler(), code, distDir: path.join(ROOT, 'dist') });
 
 /** This machine's IPv4 addresses on the networks it is joined to. */
 function lanAddresses() {

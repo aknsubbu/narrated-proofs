@@ -460,6 +460,13 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         </div>
       )}
 
+      {health && !health.unreachable && (!('version' in health) || health.behind) && (
+        <div className="banner notice" role="status">
+          <strong>The server is running older code than this folder.</strong> Restart it when nothing is rendering: stop it, then run{' '}
+          <code>npm start</code> in tts-studio. Until then, newer features may be missing or fail.
+        </div>
+      )}
+
       {mode === 'lessons' && studio?.writerProblem && (
         <div className="banner notice" role="status">
           <strong>Choose who writes your lessons.</strong> {studio.writerProblem}{' '}

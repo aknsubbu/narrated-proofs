@@ -1,6 +1,7 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -245,6 +246,42 @@ test('when the dashboard is down, every tool says how to start it', async () => 
   assert.equal(r.isError, true);
   assert.match(said(r), /not running at http:\/\/127\.0\.0\.1:9\. Start it with `npm start`/);
   await c.close();
+});
+
+test('a dashboard running older code than its folder is restarted, or the next tool result says so', async () => {
+  let health = { ok: true, engine: { status: 'ready' } }; // a server from before /health had a version
+  const fake = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(req.url === '/api/health' ? health : { voices: [{ voiceId: 'af_zed', name: 'Zed', lang: 'a' }], languages: [{ code: 'a', available: true }] }));
+  });
+  await new Promise((resolve) => fake.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${fake.address().port}`;
+  const connect = async (opts) => {
+    const mcp = createMcpServer({ baseUrl: url, freshMs: 0, ...opts });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await mcp.connect(b);
+    const c = new Client({ name: 't', version: '1' });
+    await c.connect(a);
+    return c;
+  };
+  const voices = (c) => c.callTool({ name: 'list_voices', arguments: {} });
+
+  const c = await connect();
+  assert.match(said(await voices(c)), /af_zed: Zed[\s\S]*older code than its folder \(it was started before the dashboard reported its version\)/);
+  health = { ...health, version: '1.1.0', commit: 'abc', startedAt: '2026-10-13T23:16:23.000Z', behind: false };
+  assert.doesNotMatch(said(await voices(c)), /older code/);
+  health = { ...health, behind: true };
+  assert.match(said(await voices(c)), /it has run since 2026-10-13T23:16:23\.000Z, and its folder has newer code/);
+  await c.close();
+
+  const seen = [];
+  const restarting = await connect({ onStale: async (h, why) => (seen.push(why), 'Restarted the dashboard.') });
+  const r = await voices(restarting);
+  assert.match(said(r), /Restarted the dashboard\./);
+  assert.doesNotMatch(said(r), /Ask the person/);
+  assert.equal(seen.length, 1);
+  await restarting.close();
+  fake.close();
 });
 
 test('over HTTP at /mcp, behind the same local-only checks', async () => {

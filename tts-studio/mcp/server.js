@@ -12,9 +12,18 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json')
 export const DEFAULT_URL = 'http://127.0.0.1:8787';
 const ACTOR = { 'X-Narrated-Proofs-Actor': 'claude' };
 const WAIT_MS = 50_000;
+const FRESH_MS = 5 * 60_000;
 const MAX_STILLS = 12;
 
 export class DashboardDown extends Error {}
+
+/** Why the dashboard that answered is running older code than its folder, or null. */
+export function staleReason(health) {
+  if (!health?.ok) return null;
+  if (!('version' in health)) return 'it was started before the dashboard reported its version';
+  if (health.behind) return `it has run since ${health.startedAt}, and its folder has newer code`;
+  return null;
+}
 
 /**
  * The MCP connector: tools over the dashboard's own API, so Claude can make a lesson from a
@@ -25,8 +34,11 @@ export class DashboardDown extends Error {}
  *   baseUrl    where the dashboard answers (http://127.0.0.1:8787)
  *   linkBase   what links in answers point at (http://localhost:8787)
  *   onDown     called once when the dashboard does not answer; may start it (TTS_MCP_AUTOSTART)
+ *   onStale    called with /api/health when the dashboard runs older code than its folder; may
+ *              restart it and return a line saying so. Otherwise the next tool result says so.
+ *   freshMs    how often to check that, at most
  */
-export function createMcpServer({ token = null, baseUrl = DEFAULT_URL, linkBase = baseUrl.replace('127.0.0.1', 'localhost'), cwd = process.cwd(), onDown = null, waitMs = WAIT_MS, pollMs = 1000 } = {}) {
+export function createMcpServer({ token = null, baseUrl = DEFAULT_URL, linkBase = baseUrl.replace('127.0.0.1', 'localhost'), cwd = process.cwd(), onDown = null, onStale = null, freshMs = FRESH_MS, waitMs = WAIT_MS, pollMs = 1000 } = {}) {
   const server = new McpServer(
     { name: 'narrated-proofs', title: 'Narrated Proofs', version: VERSION },
     {
@@ -41,7 +53,22 @@ export function createMcpServer({ token = null, baseUrl = DEFAULT_URL, linkBase 
   );
 
   let triedStart = false;
+  let freshAt = -Infinity;
+  let checking = null;
+  let notice = null; // added to the next tool result
+  async function checkFresh() {
+    if (Date.now() - freshAt < freshMs) return;
+    freshAt = Date.now();
+    const health = await fetch(`${baseUrl}/api/health`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const why = staleReason(health);
+    if (!why) return;
+    notice = (await onStale?.(health, why)) || `Note: the Narrated Proofs dashboard is running older code than its folder (${why}), so newer features may be missing. Ask the person to restart it (stop it, then \`npm start\` in tts-studio) when nothing is rendering.`;
+  }
+
   async function api(method, route, body, { raw = false } = {}) {
+    await (checking ??= checkFresh().finally(() => {
+      checking = null;
+    }));
     let res;
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -79,7 +106,12 @@ export function createMcpServer({ token = null, baseUrl = DEFAULT_URL, linkBase 
   const failure = (e) => ({ content: [{ type: 'text', text: e.message }], isError: true });
   const tool = (fn) => async (args, extra) => {
     try {
-      return await fn(args, extra);
+      const out = await fn(args, extra);
+      if (notice && out?.content) {
+        out.content.push({ type: 'text', text: notice });
+        notice = null;
+      }
+      return out;
     } catch (e) {
       if (e instanceof DashboardDown || e instanceof FileRuleError || e.status) return failure(e);
       throw e;

@@ -20,6 +20,7 @@ import { chaptersOf } from './versions.js';
 
 export const MAX_CHARS = 200_000;
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 const clamp = (v, min, max, fallback) => {
   const n = Number(v);
@@ -50,7 +51,7 @@ function deriveTitle(text) {
   return first.length > 60 ? `${first.slice(0, 57).trimEnd()}…` : first || 'Untitled script';
 }
 
-export function createApp({ getConfig, store, runner, engine, lessons, versions = null, settings = null, secrets = null, mcp = null, profiles = null, distDir }) {
+export function createApp({ getConfig, store, runner, engine, lessons, versions = null, settings = null, secrets = null, mcp = null, profiles = null, code = null, distDir }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(localOnly({ lan: () => getConfig().lan }));
@@ -102,6 +103,12 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
       engine: engine.info(),
       defaultVoiceId: getConfig().defaultVoiceId,
       maxChars: MAX_CHARS,
+      version: code?.version ?? null,
+      commit: code?.commit ?? null,
+      startedAt: code?.startedAt ?? null,
+      behind: code ? code.behind() : false, // the folder has newer code than this server runs
+      // Only for the connector that started this server, on this computer: what it needs to restart it.
+      ...(code?.startedBy === 'mcp' && LOOPBACK.has(req.socket.remoteAddress) ? { restart: { pid: process.pid, busy: store.inFlight() } } : {}),
     });
   });
 

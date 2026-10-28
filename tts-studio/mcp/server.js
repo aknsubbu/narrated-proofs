@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,21 @@ const FRESH_MS = 5 * 60_000;
 const MAX_STILLS = 12;
 
 export class DashboardDown extends Error {}
+
+/**
+ * Whether `pid` is a dashboard running `script` (this folder's server/index.js). A pid comes from
+ * whatever answers on the connector's address, so it is never signalled on its word alone:
+ * 0 and -1 would reach a whole process group, or every process this user owns.
+ */
+export function isDashboardPid(pid, script) {
+  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  try {
+    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim();
+    return command.endsWith(` ${script}`);
+  } catch {
+    return false; // gone, or no ps (Windows): then it is not restarted, and the tool result says so
+  }
+}
 
 /** Why the dashboard that answered is running older code than its folder, or null. */
 export function staleReason(health) {

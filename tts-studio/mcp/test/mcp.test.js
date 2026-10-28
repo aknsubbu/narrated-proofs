@@ -2,6 +2,7 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -21,7 +22,7 @@ import { createProfiles } from '../../server/profiles.js';
 import { createAuthorJobs } from '../../author/jobs.js';
 import { answer, sandbox, SCRIPT, scenes, until } from '../../author/test/fakes.js';
 import { squarePng } from '../../author/writers/probe.js';
-import { createMcpServer } from '../server.js';
+import { createMcpServer, isDashboardPid } from '../server.js';
 import { mcpHandler } from '../http.js';
 import { checkPath } from '../files.js';
 
@@ -282,6 +283,19 @@ test('a dashboard running older code than its folder is restarted, or the next t
   assert.equal(seen.length, 1);
   await restarting.close();
   fake.close();
+});
+
+test('only a pid running the dashboard script may be signalled', async () => {
+  const script = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'np-pid-')), 'index.js');
+  fs.writeFileSync(script, 'setInterval(() => {}, 1000);');
+  const child = spawn(process.execPath, [script], { stdio: 'ignore' });
+  try {
+    await until(() => isDashboardPid(child.pid, script));
+    assert.equal(isDashboardPid(child.pid, `${script}.other`), false);
+    for (const pid of [0, -1, 1, process.pid, 1.5, '42', null, undefined]) assert.equal(isDashboardPid(pid, script), false, String(pid));
+  } finally {
+    child.kill();
+  }
 });
 
 test('over HTTP at /mcp, behind the same local-only checks', async () => {

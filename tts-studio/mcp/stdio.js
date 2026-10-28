@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createMcpServer, DEFAULT_URL } from './server.js';
+import { createMcpServer, DEFAULT_URL, isDashboardPid } from './server.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const baseUrl = (process.env.NARRATED_PROOFS_URL || DEFAULT_URL).replace(/\/+$/, '');
@@ -34,12 +34,16 @@ async function startDashboard() {
   return false;
 }
 
+const serverScript = path.join(here, '..', 'server', 'index.js');
+const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseUrl).hostname);
+
 const answers = () => fetch(`${baseUrl}/api/health`).then(() => true, () => false);
 
 /** Stop a dashboard this connector started that runs older code, and start it again. */
 async function restartDashboard(health) {
   // `restart` is only sent to this computer, and only by a server a connector started.
-  if (process.env.TTS_MCP_AUTOSTART !== '1' || !health.restart || health.restart.busy) return null;
+  if (process.env.TTS_MCP_AUTOSTART !== '1' || !loopback || !health.restart || health.restart.busy) return null;
+  if (!isDashboardPid(health.restart.pid, serverScript)) return null;
   try {
     process.kill(health.restart.pid, 'SIGTERM');
   } catch {

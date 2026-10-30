@@ -35,8 +35,8 @@ You need an Apple Silicon Mac, administrator access (Homebrew and LaTeX ask for 
 2. Run the installer. It is safe to run again if it stops partway:
 
    ```bash
-   git clone https://github.com/aknsubbu/tts-dir.git
-   cd tts-dir
+   git clone https://github.com/aknsubbu/narrated-proofs.git
+   cd narrated-proofs
    ./install.sh
    ```
 
@@ -130,8 +130,8 @@ claude mcp add --transport http narrated-proofs http://localhost:8787/mcp
 One image holds the dashboard, Kokoro, ManimGL, TeX, ffmpeg and Claude Code. You need Docker Desktop (on Windows, with WSL 2), git and about 8 GB of disk.
 
 ```bash
-git clone https://github.com/aknsubbu/tts-dir.git
-cd tts-dir
+git clone https://github.com/aknsubbu/narrated-proofs.git
+cd narrated-proofs
 docker compose up --build
 ```
 
@@ -183,7 +183,7 @@ To back up your work, copy `tts-studio/data/` and `video/projects/`.
 ## Uninstall
 
 1. Remove saved keys in **Settings → Lesson writer**, and `claude mcp remove narrated-proofs` if you connected Claude.
-2. Delete the `tts-dir` folder. This also deletes your library and lessons, so copy what you want first.
+2. Delete the `narrated-proofs` folder (the one you cloned). This also deletes your library and lessons, so copy what you want first.
 3. Delete `~/.cache/huggingface/hub/models--hexgrad--Kokoro-82M` and `~/Library/Caches/narrated-proofs-scenes`.
 4. Optionally `brew uninstall --cask basictex` and `brew uninstall node uv ffmpeg`.
 

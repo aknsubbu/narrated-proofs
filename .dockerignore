@@ -1,4 +1,4 @@
-# /* AR: Keep the build context to source. Never send keys, the library or local environments. */
+# Keep the build context to source. Never send keys, the library or local environments.
 .git
 **/.DS_Store
 **/node_modules

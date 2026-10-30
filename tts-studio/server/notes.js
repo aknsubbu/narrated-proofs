@@ -18,9 +18,9 @@ import { which } from './which.js';
 // Pixels on the long side: enough to read handwriting, and image tokens grow with pixel area,
 // so a smaller edge is a cheaper request. TTS_NOTES_IMAGE_EDGE changes it.
 const MAX_EDGE = 1400;
-// /* AR: macOS converts with sips and textutil, which ship with it. Elsewhere (Linux, the Docker
-//    image) libvips and pandoc do the same two jobs, and catdoc reads the old binary .doc that
-//    pandoc cannot. Whichever is found first is used; none found means the file is refused. */
+// macOS converts with sips and textutil, which ship with it. Elsewhere (Linux, the Docker
+// image) libvips and pandoc do the same two jobs, and catdoc reads the old binary .doc that
+// pandoc cannot. Whichever is found first is used; none found means the file is refused.
 const SIPS = '/usr/bin/sips';
 const TEXTUTIL = '/usr/bin/textutil';
 const PLAIN_IMAGES = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
@@ -59,7 +59,7 @@ const run = (cmd, args) =>
 export function imageCommand(source, dest, maxEdge, { onPath = which, exists = fs.existsSync } = {}) {
   if (exists(SIPS)) return [SIPS, ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', String(maxEdge), source, '--out', dest]];
   const vips = onPath('vipsthumbnail');
-  // AR: '>' only ever shrinks, and strip drops location and camera details as the re-encode does on macOS.
+  // '>' only ever shrinks, and strip drops location and camera details as the re-encode does on macOS.
   return vips ? [vips, [source, '--size', `${maxEdge}x${maxEdge}>`, '-o', `${dest}[Q=85,strip]`]] : null;
 }
 

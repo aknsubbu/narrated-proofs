@@ -6,7 +6,7 @@ import { parse } from 'dotenv';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(here, '..');
 
-// Optional settings can live in a .env here or in the folder above (tts-dir).
+// Optional settings can live in a .env here or in the folder above (the repository root).
 function candidateEnvFiles() {
   const dirs = [process.env.TTS_ENV_DIR, ROOT, path.dirname(ROOT)].filter(Boolean);
   return dirs.map((d) => path.join(d, '.env'));
@@ -52,9 +52,9 @@ export function loadConfig() {
     device: String(pick('TTS_DEVICE', '')).trim(), // auto (default), mps or cpu
     defaultVoiceId: String(pick('TTS_VOICE', 'af_heart')).trim(),
     port: Number(pick('PORT', 8787)),
-    // /* AR: Local only; the dashboard is never exposed to your network. The Docker image sets
-    //    TTS_HOST=0.0.0.0 because a container's loopback is its own, and docker-compose.yml then
-    //    publishes the port on the host's 127.0.0.1 alone, so the rule still holds outside it. */
+    // Local only; the dashboard is never exposed to your network. The Docker image sets
+    // TTS_HOST=0.0.0.0 because a container's loopback is its own, and docker-compose.yml then
+    // publishes the port on the host's 127.0.0.1 alone, so the rule still holds outside it.
     maxProfiles: Math.min(20, Math.max(1, Math.floor(Number(pick('TTS_MAX_PROFILES', 5))) || 5)), // people who can share this install
     // Whether a scene's code is confined: the macOS sandbox (video/sandbox.py). Elsewhere it runs as this server does.
     sandboxed: process.platform === 'darwin' && fs.existsSync('/usr/bin/sandbox-exec') && !['0', 'off', 'false'].includes(String(pick('VIDEO_SANDBOX', '1')).toLowerCase()),

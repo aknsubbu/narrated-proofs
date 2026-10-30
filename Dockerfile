@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# /* AR: Narrated Proofs in one Linux image, so Windows (and any Docker host) needs no setup:
-#    `docker compose up` and open http://localhost:8787. Three stages:
-#      web      builds the page and installs the server's packages
-#      python   the two Python environments (Kokoro on the CPU, ManimGL) and the voice model
-#      runtime  what runs: Node, the environment, TeX, ffmpeg, and Mesa's CPU Vulkan driver
-#    ManimGL draws through wgpu. With no GPU in the container wgpu finds lavapipe, Mesa's
-#    Vulkan on the CPU, so scenes render headless and no display or GPU passthrough is needed. */
+# Narrated Proofs in one Linux image, so Windows (and any Docker host) needs no setup:
+# `docker compose up` and open http://localhost:8787. Three stages:
+#   web      builds the page and installs the server's packages
+#   python   the two Python environments (Kokoro on the CPU, ManimGL) and the voice model
+#   runtime  what runs: Node, the environment, TeX, ffmpeg, and Mesa's CPU Vulkan driver
+# ManimGL draws through wgpu. With no GPU in the container wgpu finds lavapipe, Mesa's
+# Vulkan on the CPU, so scenes render headless and no display or GPU passthrough is needed.
 
 ARG PYTHON_IMAGE=python:3.12-slim-trixie
 ARG NODE_IMAGE=node:22-trixie-slim
@@ -15,7 +15,7 @@ FROM ${UV_IMAGE} AS uv
 
 # ---------- the page and the server's packages ----------
 FROM ${NODE_IMAGE} AS web
-# AR: better-sqlite3 compiles itself when no prebuilt binary matches this Node.
+# better-sqlite3 compiles itself when no prebuilt binary matches this Node.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -27,7 +27,7 @@ RUN npm run build && npm prune --omit=dev
 
 # ---------- the Python environment ----------
 FROM ${PYTHON_IMAGE} AS python
-# AR: manimpango has no Linux wheel, so it is compiled here; only its result reaches the runtime.
+# manimpango has no Linux wheel, so it is compiled here; only its result reaches the runtime.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential pkg-config libpango1.0-dev git \
     && rm -rf /var/lib/apt/lists/*
@@ -38,10 +38,10 @@ ENV UV_PYTHON=/usr/local/bin/python3.12 \
     UV_COMPILE_BYTECODE=1 \
     HF_HOME=/opt/huggingface
 
-# /* AR: The one environment (pyproject.toml, uv.lock), as ./install.sh makes it on a Mac. The
-#    renderer goes in first, then PyTorch for the CPU, so kokoro does not pull the CUDA build.
-#    The locked voice packages follow, minus torch and the CUDA libraries it would drag in.
-#    --seed gives the venv pip, which misaki uses to fetch its English model during the warmup. */
+# The one environment (pyproject.toml, uv.lock), as ./install.sh makes it on a Mac. The
+# renderer goes in first, then PyTorch for the CPU, so kokoro does not pull the CUDA build.
+# The locked voice packages follow, minus torch and the CUDA libraries it would drag in.
+# --seed gives the venv pip, which misaki uses to fetch its English model during the warmup.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 COPY pyproject.toml uv.lock ./
 RUN uv venv --seed /opt/venv \
@@ -51,22 +51,22 @@ RUN uv venv --seed /opt/venv \
         | grep -viE '^(nvidia-|triton|torch==)' > /tmp/voice.txt \
     && uv pip install --python /opt/venv/bin/python -r /tmp/voice.txt
 
-# AR: The model and voices (about 350 MB) are baked in, so the first run is offline and instant.
+# The model and voices (about 350 MB) are baked in, so the first run is offline and instant.
 COPY tts-studio/engine/ /tmp/engine/
 RUN /opt/venv/bin/python /tmp/engine/kokoro_engine.py warmup
 
 # ---------- what runs ----------
 FROM ${PYTHON_IMAGE} AS runtime
 
-# /* AR: What rendering and notes need from the system:
-#      ffmpeg                         joins scenes, captions, posters
-#      libvulkan1 mesa-vulkan-drivers lavapipe, the CPU Vulkan wgpu draws with
-#      libgl1 libegl1                 the window libraries glfw loads when manim imports it
-#      pango, cairo, fonts            Text() in scenes
-#      poppler-utils                  PDF pages and text in notes (pdf.js)
-#      libvips-tools pandoc catdoc    photos and documents in notes, in place of macOS's sips and textutil
-#      perl wget xz-utils             the TeX Live installer below
-#      tini                           PID 1, so stopping the container stops builds cleanly */
+# What rendering and notes need from the system:
+#   ffmpeg                         joins scenes, captions, posters
+#   libvulkan1 mesa-vulkan-drivers lavapipe, the CPU Vulkan wgpu draws with
+#   libgl1 libegl1                 the window libraries glfw loads when manim imports it
+#   pango, cairo, fonts            Text() in scenes
+#   poppler-utils                  PDF pages and text in notes (pdf.js)
+#   libvips-tools pandoc catdoc    photos and documents in notes, in place of macOS's sips and textutil
+#   perl wget xz-utils             the TeX Live installer below
+#   tini                           PID 1, so stopping the container stops builds cleanly
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg libvulkan1 mesa-vulkan-drivers libgl1 libegl1 \
@@ -75,12 +75,12 @@ RUN apt-get update \
         perl wget xz-utils ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 
-# AR: TeX Live, as small as the macOS install (see the script for what and why).
+# TeX Live, as small as the macOS install (see the script for what and why).
 ARG TEXLIVE_REPO=https://mirror.ctan.org/systems/texlive/tlnet
 COPY docker/install-texlive.sh /tmp/install-texlive.sh
 RUN sh /tmp/install-texlive.sh "${TEXLIVE_REPO}" && rm /tmp/install-texlive.sh
 
-# AR: Node from the web stage, and Claude Code, the default lesson writer (sign in once: see README).
+# Node from the web stage, and Claude Code, the default lesson writer (sign in once: see README).
 ARG CLAUDE_CODE_VERSION=latest
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 COPY --from=web /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -100,9 +100,9 @@ RUN chmod 755 /usr/local/bin/narrated-proofs \
     && mkdir -p /app/tts-studio/data /cache /home/app/.claude \
     && chown app:app /app/tts-studio/data /cache /home/app/.claude
 
-# /* AR: The paths the server and build.py would find in the repo's .venv on macOS, pointed at
-#    the environment above. TTS_HOST is 0.0.0.0 because the container's
-#    loopback is its own; docker-compose.yml publishes the port on the host's 127.0.0.1 only. */
+# The paths the server and build.py would find in the repo's .venv on macOS, pointed at
+# the environment above. TTS_HOST is 0.0.0.0 because the container's
+# loopback is its own; docker-compose.yml publishes the port on the host's 127.0.0.1 only.
 ENV TTS_HOST=0.0.0.0 \
     PORT=8787 \
     TTS_PYTHON=/opt/venv/bin/python \

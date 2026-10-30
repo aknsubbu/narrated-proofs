@@ -12,10 +12,10 @@ export function commitOf(root = ROOT) {
   }
 }
 
-// /* AR: What code this server runs, for /api/health. The connector that starts the dashboard
-//    (TTS_MCP_AUTOSTART) used to reuse whatever answered on the port, so a server started weeks
-//    earlier kept serving old code to a newer page. `behind()` compares the commit it started
-//    with against the folder now, at most every 10 seconds. */
+// What code this server runs, for /api/health. The connector that starts the dashboard
+// (TTS_MCP_AUTOSTART) used to reuse whatever answered on the port, so a server started weeks
+// earlier kept serving old code to a newer page. `behind()` compares the commit it started
+// with against the folder now, at most every 10 seconds.
 export function createCodeInfo({ root = ROOT, commitNow = () => commitOf(root), startedBy = null, now = Date.now } = {}) {
   const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const commit = commitNow();

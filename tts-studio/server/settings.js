@@ -77,7 +77,7 @@ export const LABELS = {
 const STEP_CONFIG = { read: 'claudeReadEffort', write: 'claudeEffort', fix: 'claudeFixEffort', polish: 'claudePolishEffort', outline: 'claudeOutlineEffort' };
 const STEP_LABEL = Object.fromEntries([...WRITER_STEPS, ['polish', 'Polishing']]);
 const MODEL_SHAPE = /^[\w.:/@+-]{0,200}$/;
-// AR: SPL. CASE# host.docker.internal is the machine Docker runs on, where Ollama or LM Studio are, seen from the container.
+// host.docker.internal is the machine Docker runs on, where Ollama or LM Studio are, seen from the container.
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1', 'host.docker.internal']);
 
 const clone = (v) => JSON.parse(JSON.stringify(v));

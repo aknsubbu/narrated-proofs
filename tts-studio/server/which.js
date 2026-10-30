@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// /* AR: A server started from a macOS login item may not have Homebrew on its PATH, so its two
-//    usual folders are searched after PATH. On Linux and in the Docker image they are just PATH. */
+// A server started from a macOS login item may not have Homebrew on its PATH, so its two
+// usual folders are searched after PATH. On Linux and in the Docker image they are just PATH.
 const EXTRA_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
 
 /** The full path of the program `name` on PATH or in the usual extra folders, else null. */

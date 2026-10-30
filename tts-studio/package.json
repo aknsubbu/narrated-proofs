@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Local dashboard: drop a text script, get an MP3 from the Kokoro model running on your Mac, keep a searchable library.",
+  "description": "Narrated Proofs dashboard: turn a topic and notes into a narrated ManimGL maths video, with a local Kokoro voice and a searchable library.",
   "engines": {
     "node": ">=20"
   },

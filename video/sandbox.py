@@ -58,7 +58,7 @@ PRIVATE = (
 )
 
 # The environment a scene is given. Anything else the server has (API keys, tokens) stays out.
-# AR: XDG_RUNTIME_DIR is only a folder's name; on Linux, Mesa's Vulkan loader warns on every scene without it.
+# XDG_RUNTIME_DIR is only a folder's name; on Linux, Mesa's Vulkan loader warns on every scene without it.
 PASS_ENV = (
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "__CF_USER_TEXT_ENCODING",
     "XDG_RUNTIME_DIR",

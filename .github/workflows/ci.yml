@@ -31,8 +31,8 @@ jobs:
       - run: npm run build
 
   linux:
-    # /* AR: The same tests on Linux, where notes are converted with libvips, pandoc and catdoc
-    #    instead of sips and textutil: what the Docker image runs. */
+    # The same tests on Linux, where notes are converted with libvips, pandoc and catdoc
+    # instead of sips and textutil: what the Docker image runs.
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,8 +52,8 @@ jobs:
       - run: npm test
 
   docker:
-    # /* AR: The image Windows users run: build it, then make the demo end to end inside it (Kokoro
-    #    speaks, manim renders on lavapipe, TeX sets the equations, ffmpeg joins). */
+    # The image Windows users run: build it, then make the demo end to end inside it (Kokoro
+    # speaks, manim renders on lavapipe, TeX sets the equations, ffmpeg joins).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

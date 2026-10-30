@@ -181,7 +181,7 @@ For the desktop app, add this to `~/Library/Application Support/Claude/claude_de
   "mcpServers": {
     "narrated-proofs": {
       "command": "/opt/homebrew/bin/node",
-      "args": ["/Users/you/tts-dir/tts-studio/mcp/stdio.js"],
+      "args": ["/Users/you/narrated-proofs/tts-studio/mcp/stdio.js"],
       "env": { "TTS_MCP_AUTOSTART": "1" }
     }
   }

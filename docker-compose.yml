@@ -1,21 +1,21 @@
-# /* AR: Narrated Proofs with no setup: `docker compose up --build`, then open http://localhost:8787.
-#    Works the same from Windows (Docker Desktop), Linux and macOS. Where things live:
-#      video/projects  your lessons, as folders you can open and edit; shared with this checkout
-#      data            the library: database, MP3s, finished videos (a volume, since SQLite's
-#                      write-ahead log is not safe on a folder shared from Windows)
-#      cache           what manim, TeX and matplotlib cache while rendering
-#      claude          Claude Code's sign-in, kept across restarts */
+# Narrated Proofs with no setup: `docker compose up --build`, then open http://localhost:8787.
+# Works the same from Windows (Docker Desktop), Linux and macOS. Where things live:
+#   video/projects  your lessons, as folders you can open and edit; shared with this checkout
+#   data            the library: database, MP3s, finished videos (a volume, since SQLite's
+#                   write-ahead log is not safe on a folder shared from Windows)
+#   cache           what manim, TeX and matplotlib cache while rendering
+#   claude          Claude Code's sign-in, kept across restarts
 name: narrated-proofs
 
 services:
   app:
     build: .
     image: narrated-proofs:latest
-    # AR: 127.0.0.1 only, so it is never published to your network unless you change this. Profiles and PINs keep housemates
+    # 127.0.0.1 only, so it is never published to your network unless you change this. Profiles and PINs keep housemates
     # apart but are not strong security; see "Sharing with housemates" in the README.
     ports:
       - "127.0.0.1:${PORT:-8787}:8787"
-    # AR: Optional settings and keys, as for `npm start`; see tts-studio/.env.example.
+    # Optional settings and keys, as for `npm start`; see tts-studio/.env.example.
     env_file:
       - path: tts-studio/.env
         required: false
@@ -27,7 +27,7 @@ services:
       - data:/app/tts-studio/data
       - cache:/cache
       - claude:/home/app/.claude
-    # AR: Lets Settings reach Ollama or LM Studio on the host at http://host.docker.internal:<port>.
+    # Lets Settings reach Ollama or LM Studio on the host at http://host.docker.internal:<port>.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

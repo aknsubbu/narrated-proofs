@@ -1,9 +1,9 @@
 #!/bin/sh
-# /* AR: What the container runs. With no arguments it starts the dashboard; with arguments it runs
-#    them instead, so `docker compose run --rm app python3 /app/video/build.py demo` works too. */
+# What the container runs. With no arguments it starts the dashboard; with arguments it runs
+# them instead, so `docker compose run --rm app python3 /app/video/build.py demo` works too.
 set -eu
 
-# AR: Mesa's Vulkan loader looks for this folder and complains on every scene when it is missing.
+# Mesa's Vulkan loader looks for this folder and complains on every scene when it is missing.
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 

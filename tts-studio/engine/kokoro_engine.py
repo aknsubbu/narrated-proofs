@@ -58,17 +58,17 @@ SAMPLES = {
     "z": "你好。这就是我朗读时的声音。",
 }
 
-# /* AR: Pauses added to Kokoro's own, in seconds at speed 1 (they shorten as the speed rises). Kokoro puts almost no gap
-#    between sentences it is given together, which sounds rushed, so each sentence is spoken on its
-#    own and followed by a pause for how it ended. A line with no full stop (a heading or list
-#    item) and a paragraph break pause longer, and a narration block ends on a breath of silence
-#    so that one section does not run into the next. */
+# Pauses added to Kokoro's own, in seconds at speed 1 (they shorten as the speed rises). Kokoro puts almost no gap
+# between sentences it is given together, which sounds rushed, so each sentence is spoken on its
+# own and followed by a pause for how it ended. A line with no full stop (a heading or list
+# item) and a paragraph break pause longer, and a narration block ends on a breath of silence
+# so that one section does not run into the next.
 SENTENCE_PAUSES = {".": 0.25, "!": 0.25, "?": 0.3, "…": 0.35, "。": 0.25, "！": 0.25, "？": 0.3}
 LINE_PAUSE = 0.2
 PARAGRAPH_PAUSE = 0.7
 BLOCK_TAIL = 0.5
 FORMATS = {".mp3": "MP3", ".wav": "WAV", ".flac": "FLAC", ".ogg": "OGG"}
-# AR: Most CPU threads speech is given on Linux; see cpu_threads().
+# Most CPU threads speech is given on Linux; see cpu_threads().
 MAX_CPU_THREADS = 8
 
 
@@ -76,9 +76,9 @@ class EngineError(Exception):
     pass
 
 
-# /* AR: On Linux PyTorch starts a thread per logical CPU, which oversubscribes Docker Desktop's VM:
-#    27 s of speech took 99-135 s on 16 threads and 12-15 s on 8. Half the CPUs, at most
-#    MAX_CPU_THREADS, unless OMP_NUM_THREADS says otherwise. macOS and the GPU are left as they were. */
+# On Linux PyTorch starts a thread per logical CPU, which oversubscribes Docker Desktop's VM:
+# 27 s of speech took 99-135 s on 16 threads and 12-15 s on 8. Half the CPUs, at most
+# MAX_CPU_THREADS, unless OMP_NUM_THREADS says otherwise. macOS and the GPU are left as they were.
 def cpu_threads(device, platform=sys.platform, env=os.environ, cpus=None):
     """The number of threads PyTorch should speak with on `device`, or None to leave its default alone."""
     if device != "cpu" or not platform.startswith("linux") or env.get("OMP_NUM_THREADS"):
@@ -107,7 +107,7 @@ def clean(text, strip_markdown=True):
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+|(?<=[。！？])")
-# AR: A full stop after these does not end a sentence: "e.g. the slope", "Fig. 2", "Dr. Lee".
+# A full stop after these does not end a sentence: "e.g. the slope", "Fig. 2", "Dr. Lee".
 _ABBREVIATIONS = {"e.g.", "i.e.", "vs.", "cf.", "dr.", "mr.", "mrs.", "ms.", "prof.", "fig.", "eq.", "eqs.",
                   "no.", "approx.", "sec.", "st.", "al."}
 

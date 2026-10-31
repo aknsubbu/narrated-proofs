@@ -6,6 +6,14 @@ Claude writes the lesson (or another model you choose). [ManimGL](https://github
 
 Built for macOS on Apple Silicon. On Windows or Linux, [use Docker](#docker).
 
+![A 22-minute lesson on the PAC-Bayes bound: the boxed equation on screen, captions under it, and chapters and a live transcript beside the player](docs/images/watch.webp)
+
+*Watching a lesson: chapters and the transcript follow the narration, and the box underneath asks for a change to one chapter, scene or block.*
+
+![The dashboard: the "Explain it to me" form on the left, and the searchable library of finished lessons with tags, length and cost on the right](docs/images/library.webp)
+
+*Making one: a topic, optional notes (typed, photographed or PDF), a length and a voice. Finished lessons land in a searchable library.*
+
 ## How it works
 
 1. **You give it a topic**, and optionally notes: text, photos, screenshots, PDFs or Word files.
@@ -223,3 +231,7 @@ No test calls a model; fake providers stand in. Tests that load the real voice o
 - **A combined cap on host spending across all profiles**, and **fair scheduling between profiles.** One render runs at a time for everyone; a card shows **Queued behind N**.
 - **Sharing a lesson between profiles**, and avatar pictures.
 - **Word-level sync outside English.** Only English voices report word timings.
+
+## License
+
+[MIT](LICENSE). ManimGL, Kokoro and the other tools it installs keep their own licenses.

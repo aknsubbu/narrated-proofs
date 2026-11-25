@@ -34,6 +34,11 @@ class CaptionTest(unittest.TestCase):
         self.assertTrue(all(len(c[2]) <= 42 for c in cues))
         self.assertEqual(sum(len(c[2].split()) for c in cues), 16)
 
+    def test_a_line_break_starts_a_new_caption(self):
+        # A heading has no full stop; only the pause after it (0.35 s less the trim's margins) marks its end.
+        ws = words(("Gradient", 0.0, 0.4), ("descent", 0.4, 0.9), ("We", 1.18, 1.3), ("start", 1.3, 1.6), (".", 1.6, 1.6))
+        self.assertEqual([c[2] for c in group_cues(ws)], ["Gradient descent", "We start."])
+
     def test_block_without_words_is_split_into_sentences_by_length(self):
         cues = block_cues("Hola amigos.\nBienvenidos todos.", 1.0, 3.0)
         self.assertEqual([c[2] for c in cues], ["Hola amigos.", "Bienvenidos todos."])
@@ -115,7 +120,7 @@ class ChapterTest(unittest.TestCase):
     def test_a_chapter_moves_to_where_it_starts(self):
         from build import shift_chapter
         words = {"blocks": [
-            {"id": "a", "scene": "S", "start": 0.5, "end": 2.0, "text": "Hi there.", "words": [["Hi", 0.5, 0.8], ["there.", 0.9, 1.4]]},
+            {"id": "a", "scene": "S", "start": 0.5, "end": 2.0, "text": "Hi there.", "words": [["Hi", 0.5, 0.8], ["there.", 0.8, 1.4]]},
             {"id": "b", "scene": "S", "start": 2.0, "end": 4.0, "text": "Hola.", "words": []},
         ]}
         blocks, cues = shift_chapter(words, "02-chain", 100.0)

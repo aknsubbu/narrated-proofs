@@ -122,6 +122,7 @@ test('voice previews are rendered once and then served from disk', async () => {
   const before = calls.length;
   const [a, b] = await Promise.all([fetch(base + '/api/voices/bm_amy/preview'), fetch(base + '/api/voices/bm_amy/preview')]);
   assert.equal(a.headers.get('content-type'), 'audio/mpeg');
+  assert.match(a.headers.get('cache-control'), /no-cache/, 'the browser asks again, so a new engine\'s sample is heard');
   assert.equal((await a.arrayBuffer()).byteLength, AUDIO_BYTES);
   assert.equal(b.status, 200);
   await b.arrayBuffer();

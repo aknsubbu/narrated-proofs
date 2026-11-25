@@ -2,7 +2,10 @@
 import re
 
 MAX_CHARS = 42  # one comfortable line
-MAX_GAP = 0.6  # a longer silence starts a new caption
+# A longer silence starts a new caption. Kokoro times the words of one call back to back, with no gap at all,
+# so any gap is a boundary between calls: after a heading or list item it is the only sign a line ended
+# (0.35 s less the margins the trim keeps, and less again at higher speeds).
+MAX_GAP = 0.08
 _OPENERS = tuple("“‘([¿¡")
 _ENDS = tuple(".!?…。！？")
 

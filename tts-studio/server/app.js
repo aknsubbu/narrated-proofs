@@ -149,7 +149,8 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
       await previews.get(voice.voiceId);
     }
     res.type('audio/mpeg');
-    res.set('Cache-Control', 'private, max-age=86400');
+    // The browser asks again each time (a 304 when nothing changed), so a sample made by an older engine is not replayed.
+    res.set('Cache-Control', 'private, no-cache');
     res.sendFile(file, { dotfiles: 'allow' });
   });
 

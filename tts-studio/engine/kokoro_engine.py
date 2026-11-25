@@ -334,6 +334,7 @@ def speak_segments(pipeline, segments, voice, speed, write, pad, on_progress=Non
             samples += n
 
     for n, (segment, pause) in enumerate(segments, 1):
+        spoke = False
         for result in pipeline(segment, voice=voice, speed=speed, split_pattern=None):
             if result.audio is None:
                 continue
@@ -351,9 +352,11 @@ def speak_segments(pipeline, segments, voice, speed, write, pad, on_progress=Non
                 })
             write(piece)
             samples += len(piece)
-            gap, kept = CLAUSE_GAP, kept_after
-        if samples:
-            gap = pause  # the next segment's first piece; results within one segment keep CLAUSE_GAP
+            gap, kept, spoke = CLAUSE_GAP, kept_after, True
+        if spoke:
+            gap = pause  # before the next segment; results within one segment keep CLAUSE_GAP
+        elif samples:
+            gap = max(gap, pause)  # a segment that spoke nothing ("***") must not shorten the pause before it
         if on_progress:
             on_progress(n, len(segments))
     if samples:

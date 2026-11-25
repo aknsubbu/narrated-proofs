@@ -257,6 +257,11 @@ class TimingTest(unittest.TestCase):
         self.assertTrue(all(n >= 0 for n in r.padded))
         self.assertEqual(silences(r.stream)[1], [960 + 720])
 
+    def test_a_segment_with_no_audio_keeps_the_longer_pause_before_it(self):
+        # "***" on its own line speaks as nothing: the full stop's 0.55 s before it must not shrink to a line's 0.35 s.
+        r = run([[result(1.5, [], **SPOKEN)], [], [result(1.5, [], **SPOKEN)]], [("One.", 0.55), ("***", LINE_PAUSE), ("Two.", 0.0)])
+        self.assertEqual(silences(r.stream)[1], [round(0.55 * SR)])
+
     def test_untimed_tokens_and_silent_results_are_skipped(self):
         per_segment = [[
             result(0.4, [("ignored", 0.0, 0.1)], audio=False),  # no audio: its tokens never play

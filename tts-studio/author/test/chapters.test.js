@@ -130,15 +130,15 @@ test('a chapter written ahead that lands after its job failed does not overwrite
 
 test('a chapter that comes back with almost no narration is refused, and written again if it was written ahead', async () => {
   const notice = { title: 'Not generated', script: '[notice]\nThis chapter was not generated.\n', scenes: scenes() };
-  const long = (title) => ({ ...chapterAnswer(title), script: `[intro]\n${'word '.repeat(300)}<mark name="slope"/>slope.\n` });
+  const long = (title) => ({ ...chapterAnswer(title), script: `[intro]\n${'word '.repeat(330)}<mark name="slope"/>slope.\n` });
   box.config.authorMinNarration = 0.4;
   try {
     const first = fakeAsk({ outline: [OUTLINE], chapter: [notice] });
-    await assert.rejects(createAuthor({ getConfig: box.getConfig, ask: first.ask }).write({ project: 'c-refused', ...BRIEF }), /Chapter 1, “One neuron”, came back with 5 words of narration where about 600 were planned/);
+    await assert.rejects(createAuthor({ getConfig: box.getConfig, ask: first.ask }).write({ project: 'c-refused', ...BRIEF }), /Chapter 1, “One neuron”, came back with 5 words of narration where about 660 were planned/);
     assert.ok(!box.exists('c-refused', 'chapters/01-one-neuron/script.txt'));
 
-    // Written ahead and refused: it is asked for again when its turn comes. Chapter 2 is 6 minutes: 900 words planned.
-    const second = fakeAsk({ outline: [OUTLINE], chapter: [long('One neuron'), notice, { ...long('The chain rule'), script: `[intro]\n${'word '.repeat(400)}\n` }] });
+    // Written ahead and refused: it is asked for again when its turn comes. Chapter 2 is 6 minutes: 990 words planned.
+    const second = fakeAsk({ outline: [OUTLINE], chapter: [long('One neuron'), notice, { ...long('The chain rule'), script: `[intro]\n${'word '.repeat(440)}\n` }] });
     const result = await createAuthor({ getConfig: box.getConfig, ask: second.ask }).write({ project: 'c-refused-ahead', ...BRIEF });
     assert.equal(result.phase, 'chapters');
     assert.deepEqual(second.calls.map((c) => c.step), ['outline', 'chapter', 'chapter', 'chapter']);

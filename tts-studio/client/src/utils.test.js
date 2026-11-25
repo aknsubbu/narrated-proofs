@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MARK_END, MARK_START, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
+import { MARK_END, MARK_START, estimateSeconds, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
 
 describe('formatting', () => {
   it('shows lengths the way a person says them', () => {
@@ -7,6 +7,11 @@ describe('formatting', () => {
     expect(fmtDuration(8.4)).toBe('8s');
     expect(fmtDuration(125)).toBe('2m 05s');
     expect(fmtDuration(3725)).toBe('1h 02m');
+  });
+
+  it('estimates speech at the pace the voice is measured to speak', () => {
+    expect(estimateSeconds(165)).toBe(60);
+    expect(estimateSeconds(0)).toBe(0);
   });
 
   it('shows sizes in the nearest unit', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WORDS_PER_MINUTE } from '../../shared/limits.js';
 
 export const MARK_START = '\u0001';
 export const MARK_END = '\u0002';
@@ -40,7 +41,7 @@ export function timeAgo(ts) {
 
 export const stripExt = (name) => name.replace(/\.[^./\\]+$/, '');
 
-export const estimateSeconds = (words) => (words / 150) * 60;
+export const estimateSeconds = (words) => (words / WORDS_PER_MINUTE) * 60;
 export const countWords = (text) => text.trim().split(/\s+/).filter(Boolean).length;
 
 /** Split a server snippet into [{ text, hit }] parts using the marker characters. */

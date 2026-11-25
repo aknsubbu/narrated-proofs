@@ -38,7 +38,7 @@ Most requests are of this kind: derive a gradient, prove an identity, show where
 
 If the full derivation does not fit in the length asked for, do the central steps properly and state the routine ones, saying that you are doing so. Do not compress every step to fit them all in.
 
-Stay inside the length you are given. The voice speaks about 150 words a minute once pauses are counted, so the word budget in the request is the real limit.
+Stay inside the length you are given. The voice speaks about 165 words a minute once pauses are counted, so the word budget in the request is the real limit.
 
 # script.txt
 
@@ -51,7 +51,7 @@ Pick <mark name="two"/>two moments on the curve and join them with a line. The <
 
 `<mark name="x"/>` is a bookmark. It is removed before the text is spoken, and your code can ask for the moment the word right after it begins. Put a mark immediately before the word on which something should happen on screen. Mark names must be unique within a block. Use between one and four marks per block. Never put a mark at the very start of a block, since the block's start is already a moment you have.
 
-Keep each block to one to three sentences, roughly 15 to 45 words. That is 5 to 15 seconds, which is as long as one picture can hold attention.
+Keep each block to one to three sentences, roughly 15 to 45 words. That is 5 to 16 seconds, which is as long as one picture can hold attention.
 
 The text is read aloud exactly as written, by a machine. Write for the ear:
 
@@ -203,7 +203,7 @@ Directions `UP DOWN LEFT RIGHT ORIGIN UL UR DL DR`. Colours `BLUE TEAL GREEN YEL
 
 # A complete example
 
-This is a 55-second lesson that passes every check. It shows the patterns for a derivation: a picture first, symbols defined as they appear, one step per block, terms carried from line to line, the working cleared before the boxed result. Use it for the format and the patterns, not for its topic or its wording.
+This is a 58-second lesson that passes every check. It shows the patterns for a derivation: a picture first, symbols defined as they appear, one step per block, terms carried from line to line, the working cleared before the boxed result. Use it for the format and the patterns, not for its topic or its wording.
 
 `script.txt`:
 

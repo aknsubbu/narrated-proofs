@@ -12,6 +12,10 @@ export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif', '
 export const DOC_EXT = ['docx', 'doc', 'rtf', 'odt'];
 
 export const LESSON_MINUTES = [1, 2, 3, 5, 10, 15, 20, 30];
+// How fast the Kokoro voice narrates at speed 1, pauses included: measured on three real lessons
+// re-narrated with the trimmed, edge-to-edge pauses (163.7 words a minute, 2026-11-24). The writer's word
+// budgets and the Audio tab's length estimate both come from it; measure again when the pauses change.
+export const WORDS_PER_MINUTE = 165;
 // From this length a lesson is written in chapters: an outline first, then each chapter on its own.
 export const CHAPTERS_FROM = 10;
 export const MAX_CHAPTERS = 8;

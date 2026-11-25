@@ -73,7 +73,7 @@ test('writes a project from a brief, asking Claude with no tools', async () => {
   assert.match(flag('--system-prompt'), /class ChainRule\(VoiceoverScene, Scene\)/, 'the worked example is filled in');
   assert.match(asked.stdin, /<topic>\nSlope of a line\n<\/topic>/);
   assert.ok(asked.stdin.includes('rise over run\n$1 {{notes}} stay as typed'), 'notes reach Claude exactly as typed');
-  assert.match(asked.stdin, /130 to 170 words/);
+  assert.match(asked.stdin, /140 to 180 words/);
   assert.equal(asked.nested, false, 'the nesting marker of a surrounding Claude Code session is not passed on');
   assert.ok(!asked.cwd.includes('tts-studio/author'), 'runs outside the project folder');
   // What was asked and answered is kept beside the project.
@@ -223,16 +223,16 @@ test('a draft with far less narration than planned is not kept', async () => {
     box.answers([answer('', { script: '[notice]\nThis lesson was not generated: it was stopped by a <mark name="check"/>safety check.\n' })]);
     await assert.rejects(
       author.write({ project: 'refused', ...BRIEF }),
-      /The lesson came back with 12 words of narration where about 150 were planned, so it was not kept\. It begins: “This lesson was not generated: it was stopped by a safety check\.”/,
+      /The lesson came back with 12 words of narration where about 165 were planned, so it was not kept\. It begins: “This lesson was not generated: it was stopped by a safety check\.”/,
     );
     assert.equal(box.exists('refused', 'script.txt'), false, 'a retry writes it again');
     assert.equal(box.checked().length, 0, 'nor is it checked');
 
-    box.answers([answer('', { script: words(60) })]);
+    box.answers([answer('', { script: words(66) })]);
     await author.write({ project: 'short-enough', ...BRIEF });
 
     // The polish may answer with whole files: one that drops the narration is not kept, though it checks better.
-    box.answers([answer('# CROWDED CROWDED', { script: words(150) }), answer('# CROWDED', { script: '[intro]\nNot written. <mark name="slope"/>Sorry.\n' })]);
+    box.answers([answer('# CROWDED CROWDED', { script: words(165) }), answer('# CROWDED', { script: '[intro]\nNot written. <mark name="slope"/>Sorry.\n' })]);
     const result = await author.write({ project: 'polish-refused', ...BRIEF });
     assert.equal(result.polished, false);
     assert.match(box.read('polish-refused', 'script.txt'), /word word/);
@@ -376,7 +376,7 @@ test('prompt templates fill completely', () => {
   assert.doesNotMatch(guide(), /\{\{/);
   assert.doesNotMatch(lessonPrompt({ ...BRIEF, notes: '', goal: '' }), /\{\{/);
   assert.match(lessonPrompt({ ...BRIEF, notes: '' }), /<my_notes>\n\(none given\)/);
-  assert.match(lessonPrompt({ ...BRIEF, minutes: 5 }), /about 5 minutes of video\. That is 640 to 830 words/);
+  assert.match(lessonPrompt({ ...BRIEF, minutes: 5 }), /about 5 minutes of video\. That is 700 to 910 words/);
   assert.throws(() => fill('Hello {{name}} and {{other}}', { name: 'x' }), /wants \{\{other\}\}/);
   assert.equal(fill('{{a}}', { a: '$& {{a}}' }), '$& {{a}}', 'values are inserted as they are');
 });

@@ -287,6 +287,36 @@ test('attachments that cannot be used are refused with the reason', async () => 
   assert.deepEqual(fs.readdirSync(path.join(config.videoDir, 'projects')).filter((p) => fs.existsSync(path.join(config.videoDir, 'projects', p, 'notes', 'broken.png'))), [], 'nothing is left behind');
 });
 
+test('a lesson that fails to start leaves no project folder and no lesson behind', async () => {
+  const projects = path.join(config.videoDir, 'projects');
+  const folders = () => (fs.existsSync(projects) ? fs.readdirSync(projects).sort() : []);
+  const lessonRows = () => store.db.prepare('SELECT COUNT(*) AS n FROM generations').get().n;
+  const before = { folders: folders(), rows: lessonRows() };
+  const pdf = { name: 'paper.pdf', data: Buffer.from('%PDF-1.4 notes').toString('base64') };
+
+  // The writer cannot be handed the lesson at all: the folder made for its attachments goes too.
+  const broken = createApp({ getConfig: () => config, store, runner, engine, lessons: { start: async () => { throw new Error('The writer fell over.'); }, cancel: () => false, isWritten: () => false } });
+  const brokenServer = await new Promise((resolve) => { const s = broken.listen(0, '127.0.0.1', () => resolve(s)); });
+  try {
+    const res = await fetch(`http://127.0.0.1:${brokenServer.address().port}/api/lessons`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...LESSON, attachments: [pdf] }),
+    });
+    assert.equal(res.status, 500);
+  } finally {
+    await new Promise((resolve) => brokenServer.close(resolve));
+  }
+  assert.deepEqual(folders(), before.folders, 'the folder of attachments was removed');
+  assert.equal(lessonRows(), before.rows, 'and the lesson row that claimed it');
+
+  // A photo that cannot be read after a PDF was already saved: nothing is left either.
+  if (NOTE_TOOLS) {
+    box.answers([]);
+    const half = await j('POST', '/api/lessons', { ...LESSON, attachments: [pdf, { name: 'broken.png', data: Buffer.from('not an image').toString('base64') }] });
+    assert.equal(half.status, 400);
+    assert.deepEqual(folders(), before.folders);
+  }
+});
+
 test('file names and kinds for notes', () => {
   assert.equal(kindOf('IMG_1.HEIC'), 'image');
   assert.equal(kindOf('a.b.PDF'), 'pdf');

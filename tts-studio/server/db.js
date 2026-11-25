@@ -379,14 +379,29 @@ export function createStore(dataDir) {
       .sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag));
   }
 
-  /** Jobs that were running when the server stopped cannot continue; flag them so they can be retried. */
+  /**
+   * Jobs that were running when the server stopped cannot continue; flag them so they can be retried.
+   * A job that was only waiting its turn is left alone for resumeQueued: it had cost nothing yet.
+   * A running one may be the lesson writer, which spends money, so it is never started again on its own.
+   */
   function markInterrupted() {
     return db
       .prepare(
         `UPDATE generations SET status = 'error', error = 'Interrupted by a server restart. Press Retry.',
-                finished_at = ? WHERE status IN ('queued','processing')`,
+                finished_at = ? WHERE status = 'processing'`,
       )
       .run(Date.now()).changes;
+  }
+
+  /**
+   * The jobs that were waiting their turn when the server stopped, oldest first, with their progress cleared.
+   * A waiting job is only ever narrating audio or building a video that is already written, which costs
+   * nothing, so the caller can put them straight back in the queue.
+   */
+  function resumeQueued() {
+    const ids = db.prepare(`SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at, seq`).all().map((r) => r.id);
+    for (const id of ids) update(id, { progress_done: 0, progress_total: 0, error: null, finished_at: null });
+    return ids;
   }
 
   return {
@@ -417,17 +432,22 @@ export function createStore(dataDir) {
     rowsOf: (profileId) => db.prepare('SELECT * FROM generations WHERE profile_id = ?').all(need(profileId)),
     update,
     remove: (id) => {
-      const owner = ownerStmt.get(id)?.profile_id;
-      if (owner !== undefined) {
-        db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) SELECT ?, created_at, cost_usd, host_usd FROM versions WHERE generation_id = ? AND cost_usd > 0').run(owner, id);
-      }
-      const gone = getStmt.get(id);
-      if (gone) {
-        const u = unbilled(gone.settings_json, gone.version);
-        if (u.usd > 0) db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) VALUES (?, ?, ?, ?)').run(gone.profile_id, Date.now(), u.usd, u.host);
-      }
-      versions.removeAll(id);
-      const n = deleteStmt.run(id).changes;
+      // One step: a crash partway must not leave the cost counted in the ledger and still on the versions, or lost from both.
+      const removal = db.transaction(() => {
+        const owner = ownerStmt.get(id)?.profile_id;
+        if (owner !== undefined) {
+          db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) SELECT ?, created_at, cost_usd, host_usd FROM versions WHERE generation_id = ? AND cost_usd > 0').run(owner, id);
+        }
+        const gone = getStmt.get(id);
+        if (gone) {
+          const u = unbilled(gone.settings_json, gone.version);
+          if (u.usd > 0) db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) VALUES (?, ?, ?, ?)').run(gone.profile_id, Date.now(), u.usd, u.host);
+        }
+        versions.removeAll(id);
+        return { owner, n: deleteStmt.run(id).changes };
+      });
+      const { owner, n } = removal();
+      // Announced only once it is saved, so the page never hears of a removal that was rolled back.
       if (n) events.emit('change', id, owner);
       return n;
     },
@@ -444,12 +464,13 @@ export function createStore(dataDir) {
       return owners;
     },
     countBySource: (source) => db.prepare('SELECT COUNT(*) AS n FROM generations WHERE source_name = ?').get(source).n,
-    /** Jobs a restart would interrupt, across every profile. */
-    inFlight: () => db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE status IN ('queued','processing')`).get().n,
+    /** Jobs a restart would interrupt, across every profile. A waiting job is not one: it is queued again on start. */
+    inFlight: () => db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE status = 'processing'`).get().n,
     list,
     stats,
     tags,
     markInterrupted,
+    resumeQueued,
     close: () => db.close(),
   };
 }

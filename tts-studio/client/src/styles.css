@@ -123,6 +123,12 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .btn.more { align-self: center; }
 .link { background: none; border: none; padding: 0; color: var(--accent); font-weight: 500; font-size: 13px; }
 .link:hover { text-decoration: underline; }
+
+/* A page that failed to draw, in place of the page */
+.crash { gap: 10px; margin: 0 0 16px; }
+.crash.page { max-width: 520px; margin: 15vh auto 0; }
+.crash summary { cursor: pointer; margin: 0; }
+.crash-detail { margin: 8px 0 0; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: var(--muted); text-decoration: none; font-size: 16px; }
 .icon-btn:hover { background: var(--panel-2); color: var(--text); }
 .icon-btn.danger:hover { color: var(--err); }

@@ -1,0 +1,81 @@
+import test, { before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createStore } from '../db.js';
+
+let dir, store;
+
+const row = (id, extra = {}, settings = {}) => ({
+  id, profile_id: 'p1', kind: 'video', title: id, source_name: `video/projects/${id}`, text: 'x', text_hash: id, config_hash: id, char_count: 1, word_count: 1,
+  voice_id: 'af_heart', voice_name: null, model_id: 'm', status: 'done', tags: '', created_at: Date.now(),
+  settings_json: JSON.stringify({ project: id, quality: 'low', scenes: [], ...settings }), ...extra,
+});
+const ledger = () => store.db.prepare('SELECT COUNT(*) AS n FROM cost_ledger').get().n;
+
+before(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'np-store-'));
+  store = createStore(dir);
+});
+after(() => {
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('removing a lesson is all or nothing: a failure leaves its cost where it was and says nothing', () => {
+  // It has a version that cost money, and an outline's cost not yet held by any version.
+  store.insert(row('gone', {}, { lesson: { topic: 't', outlineCostUsd: 0.3 } }));
+  store.versions.insert({ generation_id: 'gone', n: 1, source: 'written', created_at: Date.now(), cost_usd: 0.5 });
+  const before = { ledger: ledger(), cost: store.stats('p1').costThisMonthUsd };
+  let heard = 0;
+  store.events.on('change', () => { heard += 1; });
+
+  // A failure at the very last step, after the cost has been written to the ledger.
+  store.db.exec("CREATE TEMP TRIGGER fail_delete BEFORE DELETE ON generations BEGIN SELECT RAISE(ABORT, 'boom'); END");
+  assert.throws(() => store.remove('gone'), /boom/);
+  assert.equal(ledger(), before.ledger, 'no cost was left in the ledger');
+  assert.equal(store.versions.list('gone').length, 1, 'the versions are still there');
+  assert.ok(store.getRaw('gone'), 'and so is the lesson');
+  assert.equal(store.stats('p1').costThisMonthUsd, before.cost, 'so nothing is counted twice');
+  assert.equal(heard, 0, 'nobody was told it was removed');
+
+  // Without the failure the same call goes through, and the cost stays counted.
+  store.db.exec('DROP TRIGGER fail_delete');
+  assert.equal(store.remove('gone'), 1);
+  assert.equal(ledger(), before.ledger + 2, 'the version and the outline are both kept in the ledger');
+  assert.equal(store.versions.list('gone').length, 0);
+  assert.equal(store.getRaw('gone'), undefined);
+  assert.equal(store.stats('p1').costThisMonthUsd, before.cost, 'deleting does not give the money back');
+  assert.equal(heard, 1);
+  store.events.removeAllListeners('change');
+});
+
+test('a restart queues the waiting jobs again, oldest first, and marks only the running ones for retry', () => {
+  const now = Date.now();
+  // Made out of order on purpose: the order they were made in is what is kept.
+  store.insert(row('late', { status: 'queued', created_at: now + 20 }));
+  store.insert(row('early', { status: 'queued', created_at: now + 10 }));
+  store.insert(row('same-a', { status: 'queued', created_at: now + 30 }));
+  store.insert(row('same-b', { status: 'queued', created_at: now + 30 }));
+  store.insert(row('writing', { status: 'processing' }));
+  store.insert(row('storyboard', { status: 'awaiting' }));
+  store.insert(row('built', { status: 'done' }));
+  store.update('early', { progress_done: 3, progress_total: 9 });
+
+  assert.equal(store.inFlight(), 1, 'a waiting job is not interrupted by a restart');
+  assert.equal(store.markInterrupted(), 1);
+  const writing = store.get('writing');
+  assert.equal(writing.status, 'error');
+  assert.match(writing.error, /Interrupted by a server restart/);
+  for (const id of ['late', 'early', 'same-a', 'same-b']) assert.equal(store.get(id).status, 'queued', `${id} was not marked as an error`);
+
+  assert.deepEqual(store.resumeQueued(), ['early', 'late', 'same-a', 'same-b']);
+  const early = store.get('early');
+  assert.equal(early.status, 'queued');
+  assert.equal(early.progressDone, 0);
+  assert.equal(early.progressTotal, 0);
+  assert.equal(store.get('storyboard').status, 'awaiting', 'a lesson waiting on the person is left as it is');
+  assert.equal(store.get('built').status, 'done');
+  assert.equal(store.markInterrupted(), 0, 'nothing is left to interrupt');
+});

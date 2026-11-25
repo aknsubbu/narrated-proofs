@@ -8,6 +8,7 @@ import Drawer from './components/Drawer.jsx';
 import VideoPanel from './components/VideoPanel.jsx';
 import LessonPanel from './components/LessonPanel.jsx';
 import Workspace from './components/Workspace.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Settings from './components/Settings.jsx';
 import Toasts from './components/Toasts.jsx';
 import { ManageProfile } from './components/Profiles.jsx';
@@ -557,21 +558,23 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
       )}
 
       {route && !settingsRoute && people !== 'profile' && (
-        <Workspace
-          key={route.id}
-          id={route.id}
-          tab={route.tab}
-          autoplay={autoplay}
-          summary={list.items.find((i) => i.id === route.id)}
-          voices={voices}
-          onClose={closeWorkspace}
-          onPatch={patchItem}
-          onDelete={removeItem}
-          onCancel={cancelItem}
-          onRetry={retryItem}
-          onApprove={approveItem}
-          toast={toast}
-        />
+        <ErrorBoundary title="This lesson could not be shown." resetKey={`${route.id}/${route.tab}`}>
+          <Workspace
+            key={route.id}
+            id={route.id}
+            tab={route.tab}
+            autoplay={autoplay}
+            summary={list.items.find((i) => i.id === route.id)}
+            voices={voices}
+            onClose={closeWorkspace}
+            onPatch={patchItem}
+            onDelete={removeItem}
+            onCancel={cancelItem}
+            onRetry={retryItem}
+            onApprove={approveItem}
+            toast={toast}
+          />
+        </ErrorBoundary>
       )}
 
       {selected && !route && !settingsRoute && people !== 'profile' && (

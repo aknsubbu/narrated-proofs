@@ -19,7 +19,6 @@ import { createCodeInfo } from './version.js';
 const cfg = loadConfig();
 const code = createCodeInfo({ startedBy: process.env.TTS_STARTED_BY === 'mcp' ? 'mcp' : null });
 const store = createStore(cfg.dataDir);
-const interrupted = store.markInterrupted();
 const engine = createEngine({ getConfig: loadConfig });
 const versions = createVersions({ store, getConfig: loadConfig });
 // Provider keys: the macOS Keychain, else a private file in the data folder.
@@ -31,7 +30,6 @@ const runner = createRunner({ store, engine, video: createVideoBuilder({ getConf
 // The lesson writer runs in this process, its jobs alongside the server's.
 const jobs = createAuthorJobs({ getConfig: loadConfig, author: createAuthor({ getConfig: loadConfig, secrets }) });
 const lessons = createLessons({ store, runner, getConfig: loadConfig, jobs, versions, settings });
-lessons.settleInterrupted();
 const app = createApp({ getConfig: loadConfig, store, runner, engine, lessons, versions, settings, secrets, profiles, mcp: mcpHandler(), code, distDir: path.join(ROOT, 'dist') });
 
 /** This machine's IPv4 addresses on the networks it is joined to. */
@@ -40,6 +38,11 @@ function lanAddresses() {
 }
 
 const server = app.listen(cfg.port, cfg.host, () => {
+  // Only once the port is ours: a second copy that fails to start (the port is in use) must not mark the running
+  // copy's jobs as interrupted, or take its waiting ones.
+  const interrupted = store.markInterrupted();
+  const waiting = store.resumeQueued();
+  lessons.settleInterrupted(); // what the interrupted lessons had spent stays counted
   console.log(`\n  Narrated Proofs  http://localhost:${cfg.port}`);
   if (cfg.lan) {
     for (const a of lanAddresses()) console.log(`  On your network  http://${a}:${cfg.port}   (profiles keep libraries apart; trusted networks only)`);
@@ -49,8 +52,11 @@ const server = app.listen(cfg.port, cfg.host, () => {
   console.log(`  Lesson writer    who writes: Settings → Lesson writer`);
   console.log(`  MCP connector    http://localhost:${cfg.port}/mcp   (Settings → Connect Claude)`);
   console.log(`  Kokoro           loading the model…`);
+  if (waiting.length) console.log(`  ${waiting.length} waiting job(s) from the last run were queued again.`);
   if (interrupted) console.log(`  ${interrupted} unfinished job(s) from the last run were marked for retry.`);
   console.log('');
+  // Jobs that were only waiting their turn cost nothing, so they start again in the order they were made.
+  for (const id of waiting) runner.enqueue(id);
   // Load the model now so the first script does not wait for it.
   engine.start().then(
     (info) => console.log(`  Kokoro           ready on ${info.device}, ${info.voices.length} voices\n`),

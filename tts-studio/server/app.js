@@ -300,8 +300,6 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
     res.status(201).json({ generation: store.get(id) });
   });
 
-  // A lesson: Claude writes the script and the scenes from a topic and notes, then it is built
-  // like any other video. The row exists from the start so the library shows each stage.
   // A lesson: Claude (or the writer chosen in Settings) writes the script and the scenes from a
   // topic and notes, then it is built like any other video. The row exists from the start so the
   // library shows each stage. Lessons Claude starts through MCP have origin "claude": its own
@@ -341,9 +339,11 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
         if (override && !mine.provider(override.provider)) throw new SettingsError(`There is no provider called “${override.provider}”.`);
         await mine.checkWriter(mine.resolveWriter(origin, override));
         const { monthCapUsd } = mine.costs();
-        const allowance = await mine.hostAllowance(mine.resolveWriter(origin, override), store.stats(req.profile.id).hostSpentThisMonthUsd);
+        // Read once: it scans every lesson of the profile, and both checks need it.
+        const spent = store.stats(req.profile.id);
+        const allowance = await mine.hostAllowance(mine.resolveWriter(origin, override), spent.hostSpentThisMonthUsd);
         if (allowance?.usesHost && allowance.leftUsd <= 0) throw new SettingsError(mine.hostAllowanceMessage(allowance));
-        if (monthCapUsd != null && store.stats(req.profile.id).costThisMonthUsd >= monthCapUsd) {
+        if (monthCapUsd != null && spent.costThisMonthUsd >= monthCapUsd) {
           throw new SettingsError(`This month's lessons have reached the monthly cap of $${monthCapUsd.toFixed(2)}. Raise it in Settings → Costs, or choose a free writer.`);
         }
       } catch (e) {
@@ -356,48 +356,63 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
     const ownTitle = String(b.title || '').trim().slice(0, 120);
     // Photos, PDFs and documents are saved into the project now, so only their names travel on
     // to the lesson writer. Documents, and PDFs sent as text, become text and join the typed notes.
-    let attached;
+    // If anything after this fails, the folder goes too, so no lesson-less folder is left behind. Only
+    // a folder this request made is removed: the random end of the name makes that certain, but check.
+    const projectDir = path.join(getConfig().videoDir, 'projects', project);
+    const madeFolder = !fs.existsSync(projectDir);
+    let inserted = false;
     try {
-      attached = await saveAttachments(path.join(getConfig().videoDir, 'projects', project), b.attachments, { maxEdge: getConfig().notesImageEdge });
+      let attached;
+      try {
+        attached = await saveAttachments(projectDir, b.attachments, { maxEdge: getConfig().notesImageEdge });
+      } catch (e) {
+        if (e instanceof NotesError) throw httpError(400, e.message);
+        throw e;
+      }
+      const allNotes = [notes, attached.text].filter(Boolean).join('\n\n');
+      if (allNotes.length > MAX_NOTES) {
+        throw httpError(400, `With the attached documents the notes come to ${allNotes.length.toLocaleString('en-US')} characters; the limit is ${MAX_NOTES.toLocaleString('en-US')}. Attach a long document as a PDF instead.`);
+      }
+      const brief = [topic, goal, allNotes].filter(Boolean).join('\n\n');
+      store.insert({
+        id,
+        profile_id: req.profile.id,
+        kind: 'video',
+        title: ownTitle || topic.slice(0, 120),
+        source_name: `video/projects/${project}`,
+        text: brief,
+        text_hash: sha(brief),
+        config_hash: sha(`lesson:${id}`),
+        char_count: brief.length,
+        word_count: countWords(brief),
+        voice_id: voiceId,
+        voice_name: engine.catalog().voices.find((v) => v.voiceId === voiceId)?.name || null,
+        model_id: MODEL_ID,
+        settings_json: JSON.stringify({
+          project, quality, speed: 1, scenes: [],
+          lesson: {
+            topic, goal, minutes, review, ownTitle: !!ownTitle,
+            attachments: attached.files.map(({ name, file, kind, pages, asText }) => ({ name, file, kind, ...(pages ? { pages } : {}), ...(asText ? { asText } : {}) })),
+            ...(origin === 'claude' ? { origin } : {}),
+            ...(override ? { writer: override } : {}),
+            ...(chaptered ? { chaptered, outlineReview } : {}),
+          },
+        }),
+        status: 'queued',
+        tags: normalizeTags(b.tags ?? ['lesson']).join(','),
+        created_at: Date.now(),
+      });
+      inserted = true;
+      await lessons.start(id, { topic, goal, notes: allNotes, minutes, voice: voiceId, attachments: attached.files.filter((f) => !f.asText), visualReview, ...(chaptered ? { titleCards } : {}) });
     } catch (e) {
-      if (e instanceof NotesError) throw httpError(400, e.message);
+      if (inserted) {
+        // The lesson cannot go on, and it would claim a folder that is about to be gone.
+        lessons.cancel(id);
+        store.remove(id);
+      }
+      if (madeFolder) fs.rmSync(projectDir, { recursive: true, force: true });
       throw e;
     }
-    const allNotes = [notes, attached.text].filter(Boolean).join('\n\n');
-    if (allNotes.length > MAX_NOTES) {
-      fs.rmSync(path.join(getConfig().videoDir, 'projects', project), { recursive: true, force: true });
-      throw httpError(400, `With the attached documents the notes come to ${allNotes.length.toLocaleString('en-US')} characters; the limit is ${MAX_NOTES.toLocaleString('en-US')}. Attach a long document as a PDF instead.`);
-    }
-    const brief = [topic, goal, allNotes].filter(Boolean).join('\n\n');
-    store.insert({
-      id,
-      profile_id: req.profile.id,
-      kind: 'video',
-      title: ownTitle || topic.slice(0, 120),
-      source_name: `video/projects/${project}`,
-      text: brief,
-      text_hash: sha(brief),
-      config_hash: sha(`lesson:${id}`),
-      char_count: brief.length,
-      word_count: countWords(brief),
-      voice_id: voiceId,
-      voice_name: engine.catalog().voices.find((v) => v.voiceId === voiceId)?.name || null,
-      model_id: MODEL_ID,
-      settings_json: JSON.stringify({
-        project, quality, speed: 1, scenes: [],
-        lesson: {
-          topic, goal, minutes, review, ownTitle: !!ownTitle,
-          attachments: attached.files.map(({ name, file, kind, pages, asText }) => ({ name, file, kind, ...(pages ? { pages } : {}), ...(asText ? { asText } : {}) })),
-          ...(origin === 'claude' ? { origin } : {}),
-          ...(override ? { writer: override } : {}),
-          ...(chaptered ? { chaptered, outlineReview } : {}),
-        },
-      }),
-      status: 'queued',
-      tags: normalizeTags(b.tags ?? ['lesson']).join(','),
-      created_at: Date.now(),
-    });
-    await lessons.start(id, { topic, goal, notes: allNotes, minutes, voice: voiceId, attachments: attached.files.filter((f) => !f.asText), visualReview, ...(chaptered ? { titleCards } : {}) });
     res.status(201).json({ generation: store.get(id) });
   });
 

@@ -94,7 +94,12 @@ export const OUTLINE_SCHEMA = {
   additionalProperties: false,
 };
 
-const COLOR = /^(?:(?:BLUE|GREEN|YELLOW|RED|ORANGE|PURPLE|TEAL|PINK|GREY|GOLD|MAROON)(?:_[A-E])?|WHITE)$/;
+// The colours ManimGL has (manimlib/constants.py): these nine come in shades _A to _E, and PINK and
+// ORANGE come in none, so PINK_B is a NameError. A test compares this list with the installed manimlib.
+const SHADED = ['BLUE', 'GREEN', 'YELLOW', 'RED', 'PURPLE', 'TEAL', 'GREY', 'GOLD', 'MAROON'];
+const PLAIN = ['ORANGE', 'PINK', 'WHITE'];
+export const OUTLINE_COLORS = [...SHADED.flatMap((c) => [c, ...'ABCDE'.split('').map((s) => `${c}_${s}`)]), ...PLAIN];
+const COLOR = new RegExp(`^(?:${OUTLINE_COLORS.join('|')})$`);
 const PALETTE = ['BLUE', 'GREEN', 'YELLOW', 'RED', 'ORANGE', 'PURPLE', 'TEAL', 'PINK'];
 const line = (v, n = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -408,7 +413,10 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
           result = await autofix(root, report, { config, signal });
         } catch (e) {
           if (e.code === 'aborted') throw e;
-          return false; // the fixer is a shortcut; without it the writer fixes everything as before
+          // The fixer is a shortcut; without it the writer fixes everything as before. Say why in
+          // the log, though: a failure here that nobody could see kept it from ever running.
+          fs.writeFileSync(path.join(log, `${tagged(`${logPrefix}autofix-failed`)}.json`), JSON.stringify({ error: String(e.message || e) }, null, 2));
+          return false;
         }
         if (!result?.changed) return false;
         fs.writeFileSync(path.join(log, `${tagged(`${logPrefix}autofix`)}.json`), JSON.stringify(result, null, 2));
@@ -983,7 +991,10 @@ function readJson(file) {
 export async function runAutofix(root, report, { config, signal }) {
   const [cmd, ...pre] = config.authorAutofix || ['python3', path.join(config.videoDir, 'autofix.py')];
   if (!config.authorAutofix && !fs.existsSync(pre[0])) return { changed: false, fixes: [] };
+  // A chapter's folder has a build/ from its check but no build/author (the lesson's log holds those),
+  // so make it: without it the write below failed and no chapter was ever fixed automatically.
   const reportFile = path.join(root, 'build', 'author', 'last-check.json');
+  fs.mkdirSync(path.dirname(reportFile), { recursive: true });
   fs.writeFileSync(reportFile, JSON.stringify(report));
   const { stdout } = await run(cmd, [...pre, root, '--report', reportFile], {
     signal,

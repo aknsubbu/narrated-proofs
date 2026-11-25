@@ -24,7 +24,7 @@ Return:
 
 - `title`: the video's title, at most 60 characters.
 - `through_line`: one sentence, the question the whole video answers.
-- `notation`: every symbol the chapters share, as `{ "tex", "meaning", "color" }`, with `tex` the LaTeX for the symbol and `color` a ManimGL colour constant (BLUE, GREEN, YELLOW, RED, ORANGE, PURPLE, TEAL, PINK, GREY, or one of those with _A to _E). Each chapter colours these the same way.
+- `notation`: every symbol the chapters share, as `{ "tex", "meaning", "color" }`, with `tex` the LaTeX for the symbol and `color` a ManimGL colour constant: BLUE, GREEN, YELLOW, RED, PURPLE, TEAL, GOLD, MAROON or GREY, which each also come as _A to _E (BLUE_B, say), or ORANGE or PINK, which have no shades, or WHITE. Each chapter colours these the same way.
 - `chapters`, in order, each with:
   - `id`: a short slug, like "chain-rule".
   - `title`: what a viewer would call it.

@@ -197,7 +197,7 @@ Or `m.add_updater(lambda m: m.move_to(other.get_center()))`.
 `self.frame` is the camera. Zoom or pan with `self.play(self.frame.animate.scale(0.5).move_to(point))`. There is no `self.camera.frame`.
 
 **Constants**
-Directions `UP DOWN LEFT RIGHT ORIGIN UL UR DL DR`. Colours `BLUE TEAL GREEN YELLOW GOLD RED MAROON PURPLE PINK ORANGE WHITE BLACK GREY` plus shades such as `BLUE_A` (lightest) to `BLUE_E` (darkest) and `GREY_A` to `GREY_E` (spelled GREY, not GRAY). Angles `PI`, `TAU`, `DEG`. Sizes `FRAME_WIDTH`, `FRAME_HEIGHT`.
+Directions `UP DOWN LEFT RIGHT ORIGIN UL UR DL DR`. Colours `BLUE TEAL GREEN YELLOW GOLD RED MAROON PURPLE PINK ORANGE WHITE BLACK GREY`. Every one of them except `PINK`, `ORANGE`, `WHITE` and `BLACK` also has shades from `_A` (lightest) to `_E` (darkest), such as `BLUE_A` and `GREY_E`; `PINK` and `ORANGE` have none, though `LIGHT_PINK` exists. GREY is spelled GREY, not GRAY. Angles `PI`, `TAU`, `DEG`. Sizes `FRAME_WIDTH`, `FRAME_HEIGHT`.
 
 **Not available:** `MathTex`, `Create`, `DoubleArrow`, `Table`, `config`, images, SVG files, sound, 3D scenes. Use `Scene` only. If you are not sure something exists in ManimGL, build it from the pieces above.
 

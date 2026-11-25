@@ -87,6 +87,18 @@ test('a chapter that fails stops only itself, and a retry continues there', asyn
   assert.deepEqual(again.calls.map((c) => c.step), ['fix'], 'chapter 1 is not written again, nor the outline');
 });
 
+test('a chapter gets the automatic fixes too, though its folder has no build/author of its own', async () => {
+  // The report is handed to the fixer as a file; a chapter's build/ holds only what its check wrote.
+  const fixable = chapterAnswer('One neuron', '# FIXABLE');
+  const { ask, calls } = fakeAsk({ outline: [OUTLINE], chapter: [fixable, chapterAnswer('The chain rule')] });
+  box.answers([]);
+  const result = await createAuthor({ getConfig: box.getConfig, ask }).write({ project: 'c-autofix', ...BRIEF });
+  assert.deepEqual(calls.map((c) => c.step), ['outline', 'chapter', 'chapter'], 'no fix was asked for');
+  assert.match(box.read('c-autofix', 'chapters/01-one-neuron/scenes.py'), /# autofixed/);
+  assert.ok(box.autofixed().some((a) => a.root.endsWith(path.join('chapters', '01-one-neuron'))));
+  assert.ok(result.autofixed.length > 0);
+});
+
 test('a chapter written ahead is kept when the one before it fails', async () => {
   const broken = chapterAnswer('One neuron', '# BROKEN');
   const { ask, calls } = fakeAsk({ outline: [OUTLINE], chapter: [broken, chapterAnswer('The chain rule')], fix: [broken, broken] });

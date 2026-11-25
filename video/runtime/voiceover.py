@@ -21,15 +21,19 @@ end of a block, and text that left the frame or landed on other text. Each
 problem names its block. With $VOICEOVER_SNAPSHOTS set too, it keeps a picture
 of the screen at every mark and at the end of every block: the storyboard.
 
-This module runs inside manimgl but never imports manimlib or numpy, so its
-arithmetic can be tested with a fake scene.
+This module runs inside manimgl but never imports manimlib or numpy itself, so its
+arithmetic can be tested with a fake scene. It does start texfix.py, which repairs how
+manimlib compiles LaTeX once manimlib is loaded (see there).
 """
 import json
 import logging
 import os
 from pathlib import Path
 
+import texfix  # LaTeX repairs for manimlib; patches nothing until manimlib is loaded
+
 log = logging.getLogger("manimgl")
+texfix.install()  # the usual `from manimlib import *` comes first, so this is normally the moment
 
 TEXT_TYPES = {"StringMobject", "DecimalNumber"}  # Text, Tex, TexText, Integer... by base class name
 OVERLAP = 0.25  # two texts collide when they share this much of the smaller one's box
@@ -94,6 +98,10 @@ class VoiceoverScene:
     """
 
     voiceover_manifest = None
+
+    def __init__(self, *args, **kwargs):
+        texfix.install()  # for a scene file that imported this before manimlib
+        super().__init__(*args, **kwargs)
 
     def play(self, *args, **kwargs):
         result = super().play(*args, **kwargs)

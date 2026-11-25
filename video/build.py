@@ -121,7 +121,8 @@ def scene_keys(root, config, manifest, quality):
     shared = {
         "v": CACHE_VERSION,
         "quality": quality,
-        "runtime": hashlib.sha256((RUNTIME / "voiceover.py").read_bytes() + (RUNTIME / "kit.py").read_bytes()).hexdigest(),
+        # texfix.py changes how every formula compiles, so it is part of what a render depends on too.
+        "runtime": hashlib.sha256(b"".join((RUNTIME / f).read_bytes() for f in ("voiceover.py", "kit.py", "texfix.py"))).hexdigest(),
         "manim": manim_fingerprint(),
         "custom_config": custom.read_text(encoding="utf-8") if custom.is_file() else None,
     }

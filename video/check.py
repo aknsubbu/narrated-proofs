@@ -35,6 +35,7 @@ from pathlib import Path
 import build
 import project_ast
 import sandbox
+import texcheck
 from narrate import _MARK, ScriptError, load_project, parse_script
 
 HERE = Path(__file__).resolve().parent
@@ -47,10 +48,12 @@ ALLOWED_IMPORTS = {"manimlib", "voiceover", "kit", "numpy", "math", "random", "i
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "open", "input", "breakpoint", "globals"}
 # --strict is for scenes a model wrote (the lesson writer passes it). They have no reason to
 # touch the system at all, so the modules a hand-written project uses to find its own files go
-# too, along with the names that reach other modules indirectly.
+# too, along with the names that reach other modules indirectly. `sp` is not here: it names
+# nothing unless the scene imports subprocess as sp, which STRICT_IMPORTS refuses, and
+# `from manimlib import *` does not define it. Models use it for a standard deviation.
 STRICT_IMPORTS = ALLOWED_IMPORTS - {"sys", "pathlib"}
 STRICT_NAMES = FORBIDDEN_NAMES | {
-    "sys", "os", "sp", "subprocess", "shutil", "importlib", "builtins", "__builtins__", "pathlib", "Path",
+    "sys", "os", "subprocess", "shutil", "importlib", "builtins", "__builtins__", "pathlib", "Path",
     "getattr", "setattr", "delattr", "vars", "locals", "socket", "urllib", "requests", "pickle", "ctypes",
 }
 STRICT_ATTRS = {"system", "popen", "Popen", "load", "save", "savez", "savetxt", "loadtxt", "fromfile", "tofile", "memmap", "modules"}
@@ -304,7 +307,9 @@ def try_scene(root, config, scene, report):
     if done.returncode:
         # A failure that never reaches scenes.py is not the scene's code: the sandbox may have stopped it.
         mine = config["scenes_file"] in done.stdout
-        report.error(scene, " ".join(filter(None, [tidy(done.stdout), sandbox.hint(done.stdout) or ("" if mine else sandbox.hint())])))
+        # TeX that does not compile is worth more than the tail of a traceback: the line, the string and TeX's own error.
+        tex, where = texcheck.explain_failure(root, config["scenes_file"], done.stdout, scene, report) or (None, {})
+        report.error(scene, " ".join(filter(None, [tex or tidy(done.stdout), sandbox.hint(done.stdout) or ("" if mine else sandbox.hint())])), **where)
         return data, report.errors[-1]["message"]  # what it drew before failing still goes on the storyboard
     if data is None:
         message = "the scene ran but played no narration; it needs at least one `with self.voiceover(...)` block"
@@ -380,6 +385,7 @@ def check(root, static_only=False, sync_scenes=False, strict=False):
                 b["duration"] = round(manifest["blocks"][b["id"]]["duration"], 2)
             info["duration"] = round(sum(b["duration"] for b in info["blocks"]), 1)
             shutil.rmtree(root / "build" / "check" / "frames", ignore_errors=True)  # no stills left from an older version
+            texcheck.check_literals(root, config, report)  # every Tex string written out in scenes.py that will not compile, before the scenes find them one by one
             results = {scene: try_scene(root, config, scene, report) for scene in config["scenes"]}
             write_storyboard(root, config, manifest, results)
             info["storyboard"] = "build/check/storyboard.json"

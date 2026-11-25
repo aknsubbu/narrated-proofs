@@ -17,6 +17,10 @@ from manimlib import (
     Axes, Line, SurroundingRectangle, Tex, Text, VGroup,
 )
 
+import texfix  # kit may be used by a scene that never imports voiceover first
+
+texfix.install()
+
 __all__ = ["derivation", "boxed", "cancel", "plot", "note"]
 
 

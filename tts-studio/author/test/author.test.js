@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createAuthorJobs } from '../jobs.js';
 import { parseAnswer } from '../claude.js';
-import { checkNarration, createAuthor, moreEffort, narrationWords, normalizeDraft } from '../pipeline.js';
+import { checkNarration, createAuthor, moreEffort, narrationWords, normalizeDraft, runAutofix } from '../pipeline.js';
 import { fill, guide, lessonPrompt } from '../prompts.js';
 import { alive, answer, sandbox, scenes, SCRIPT, until } from './fakes.js';
+
+const REAL_VIDEO_DIR = fileURLToPath(new URL('../../../video', import.meta.url));
 
 let dir, box, author, jobs;
 const BRIEF = { topic: 'Slope of a line', goal: 'What the number means', notes: 'rise over run\n$1 {{notes}} stay as typed', minutes: 1, voice: 'af_heart' };
@@ -266,6 +269,28 @@ test('common mistakes are fixed without asking Claude', async () => {
   const again = await author.write({ project: 'autofix-2', ...BRIEF });
   assert.equal(again.fixes, 1);
   assert.equal(box.autofixed().length, 1);
+});
+
+test('the real video/autofix.py is run the way the writer runs it, on a folder with no build/', async () => {
+  // No fake: python3, video/autofix.py and the --report file, as a chapter's folder would meet them.
+  const root = fs.mkdtempSync(path.join(dir, 'real-autofix-'));
+  fs.writeFileSync(path.join(root, 'scenes.py'), 'from manimlib import *\nCOLORS = {R"R(T)": PINK_B, R"\\eta": ORANGE_C}\nx = MathTex("a")\n');
+  const report = { errors: [{ where: 'Hook', message: "Traceback (most recent call last):\nNameError: name 'PINK_B' is not defined. Did you mean: 'PINK'?" }] };
+  const result = await runAutofix(root, report, { config: { videoDir: REAL_VIDEO_DIR } });
+  assert.equal(result.changed, true);
+  assert.equal(fs.readFileSync(path.join(root, 'scenes.py'), 'utf8'), 'from manimlib import *\nCOLORS = {R"R(T)": PINK, R"\\eta": ORANGE}\nx = Tex("a")\n');
+  assert.ok(result.fixes.some((f) => /PINK_B/.test(f)), result.fixes.join('; '));
+  assert.ok(fs.existsSync(path.join(root, 'build', 'author', 'last-check.json')), 'the report it was given');
+  assert.deepEqual(await runAutofix(root, { errors: [] }, { config: { videoDir: REAL_VIDEO_DIR } }), { changed: false, fixes: [] }, 'nothing left to fix');
+});
+
+test('a fixer that cannot run is written to the log, and the writer fixes the scenes as before', async () => {
+  const broken = createAuthor({ getConfig: () => ({ ...box.config, authorAutofix: [path.join(dir, 'no-such-autofix')] }) });
+  box.answers([answer('# FIXABLE'), answer('# fixed')]);
+  const result = await broken.write({ project: 'autofix-gone', ...BRIEF });
+  assert.equal(result.fixes, 1, 'Claude fixed it');
+  const failed = fs.readdirSync(path.join(box.project('autofix-gone'), 'build', 'author')).find((f) => /autofix-failed\.json$/.test(f));
+  assert.match(JSON.parse(box.read('autofix-gone', `build/author/${failed}`)).error, /no-such-autofix/);
 });
 
 test('with visual review on, Claude is shown its own frames and may change nothing', async () => {

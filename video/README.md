@@ -52,7 +52,7 @@ python3 splice.py projects/<name> --edit edit.json       # apply an edit that na
 python3 autofix.py projects/<name> --report check.json   # fix the commonest model mistakes
 ```
 
-`splice.py` replaces narration blocks by id and scene classes by name, and writes nothing if any part can't be applied. `autofix.py` fixes, without asking, Manim Community names ManimGL lacks (`MathTex`, `Create`, `GRAY` and so on) and block or mark names one typo off.
+`splice.py` replaces narration blocks by id and scene classes by name, and writes nothing if any part can't be applied. `autofix.py` fixes, without asking, Manim Community names ManimGL lacks (`MathTex`, `Create`, `GRAY`, `PINK_B` and so on), `FadeOut(*things)` and `NumberLine(length=...)`, and block or mark names one typo off.
 
 `runtime/kit.py` gives scenes `derivation()`, `boxed()`, `cancel()`, `plot()` and `note()`. A `scenes.py` may import only manim, `voiceover`, numpy and a few standard modules.
 

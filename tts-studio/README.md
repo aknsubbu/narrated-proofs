@@ -33,7 +33,7 @@ Switch to **Audio** in the header.
 Good to know:
 
 - **Duplicates are caught.** Same text, voice and settings is not generated twice; you can open the old one or generate again.
-- **Long scripts** are split at paragraph, line and sentence boundaries, with a pause between sentences, and encoded once (24 kHz mono MP3). Expect 10 to 25 times faster than real time on Apple Silicon.
+- **Long scripts** are split at paragraph, line and sentence boundaries, with Kokoro's own silence trimmed and a pause chosen for how each sentence ends (longer after a question or a paragraph), and encoded once (24 kHz mono MP3). Expect 10 to 25 times faster than real time on Apple Silicon.
 - **One voice, one language.** Match the voice to the script. To fix a mispronounced English word, write it as `[Kokoro](/kˈOkəɹO/)`.
 - **Markdown is stripped** before speaking (you can turn that off).
 - **Cancel works mid-job** and restarts the voice engine. If the engine crashes mid-job, the job is retried once.

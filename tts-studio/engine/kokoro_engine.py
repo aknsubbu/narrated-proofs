@@ -66,11 +66,13 @@ SAMPLES = {
 # speed 1, and shorten as the speed rises. A line with no full stop (a heading or list item) and a
 # paragraph break have their own gaps, and a narration block starts and ends on a breath of silence so
 # that one section does not run into the next.
-SENTENCE_PAUSES = {".": 0.25, "!": 0.25, "?": 0.3, "…": 0.35, "。": 0.25, "！": 0.25, "？": 0.3}
-LINE_PAUSE = 0.2
-PARAGRAPH_PAUSE = 0.7
+# These values were chosen by ear from five sets (2026-11-24): docs/superpowers/specs/2026-11-24-natural-narration-findings.md.
+SENTENCE_PAUSES = {".": 0.55, "!": 0.55, "?": 0.65, "…": 0.65, ":": 0.45, "。": 0.55, "！": 0.55, "？": 0.65}
+LINE_PAUSE = 0.35
+PARAGRAPH_PAUSE = 0.90
 CLAUSE_GAP = 0.25  # between the pieces of a sentence too long to speak at once: a comma's breath, not a stop
-BLOCK_TAIL = 0.5
+BLOCK_LEAD = 0.25
+BLOCK_TAIL = 0.75  # with the next block's lead, a second between sections
 # A frame of 5 ms is silent when its RMS is under TRIM_THRESHOLD (about -66 dBFS): low enough to keep the
 # soft ends of words like "this", high enough that Kokoro's near-silent padding counts as silence.
 TRIM_THRESHOLD = 0.0005
@@ -180,7 +182,7 @@ def split_segments(text, limit):
     """Cut text into [(segment, pause_after_seconds)], each at most `limit` characters.
 
     Each sentence is its own segment, followed by a pause for how it ended; a paragraph break
-    pauses longer. A sentence longer than `limit` is cut at spaces, with no pause inside it.
+    pauses longer. A sentence longer than `limit` is cut at spaces, with only CLAUSE_GAP inside it.
     """
     segments = []
     for paragraph in re.split(r"\n\s*\n", text):
@@ -188,7 +190,7 @@ def split_segments(text, limit):
             for sentence in _sentences(line):
                 pieces = [sentence] if len(sentence) <= limit else _hard_split(sentence, limit)
                 for piece in pieces[:-1]:
-                    segments.append([piece, 0.0])
+                    segments.append([piece, CLAUSE_GAP])
                 segments.append([pieces[-1], _pause_after(sentence)])
         if segments:
             segments[-1][1] = PARAGRAPH_PAUSE
@@ -418,8 +420,9 @@ class Engine:
             self.pipelines[lang] = KPipeline(lang_code=lang, repo_id=REPO_ID, model=self.model)
         return self.pipelines[lang]
 
-    def synthesize(self, text, out, voice=DEFAULT_VOICE, speed=1.0, fmt=None, on_progress=None, tail=0.0):
-        """Speak `text` into the file `out`, then `tail` seconds of silence. Returns duration, size, segment count and word timings."""
+    def synthesize(self, text, out, voice=DEFAULT_VOICE, speed=1.0, fmt=None, on_progress=None, lead=0.0, tail=0.0):
+        """Speak `text` into the file `out`, starting `lead` seconds before the speech and ending `tail` after it.
+        Returns duration, size, segment count and word timings."""
         import numpy as np
         import soundfile as sf
 
@@ -446,10 +449,9 @@ class Engine:
                 write=f.write,
                 pad=lambda n: f.write(np.zeros(n, dtype="float32")),
                 on_progress=on_progress,
+                lead=lead,
+                tail=tail,
             )
-            if tail and samples:
-                f.write(np.zeros(int(tail * SAMPLE_RATE), dtype="float32"))
-                samples += int(tail * SAMPLE_RATE)
         if not samples:
             out.unlink(missing_ok=True)
             raise EngineError("Kokoro produced no audio for this text.")

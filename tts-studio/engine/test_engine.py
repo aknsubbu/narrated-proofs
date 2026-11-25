@@ -1,10 +1,11 @@
 """Text handling and timing tests. They need only the standard library, not the model."""
+import importlib.util
 import unittest
 from types import SimpleNamespace
 
 from kokoro_engine import (
     CLAUSE_GAP, LANGUAGES, LINE_PAUSE, SENTENCE_PAUSES, MAX_CPU_THREADS, PARAGRAPH_PAUSE, SAMPLE_RATE, clean, cpu_threads,
-    speak_segments, speech_bounds, split_segments, trim_speech,
+    TRIM_FRAME, cached_snapshot, speak_segments, speech_bounds, split_segments, trim_speech,
 )
 
 SENTENCE = "This is a perfectly ordinary sentence about nothing in particular."
@@ -62,10 +63,20 @@ class SplitTest(unittest.TestCase):
             "Done.",
         ])
 
-    def test_a_long_sentence_is_cut_with_no_pause_inside_it(self):
+    def test_a_long_sentence_is_cut_with_only_a_clause_gap_inside_it(self):
         segments = split_segments(" ".join(f"w{i}" for i in range(300)) + ". Next.", 220)
-        self.assertTrue(all(p == 0.0 for _, p in segments[:-2]))
+        self.assertTrue(all(p == CLAUSE_GAP for _, p in segments[:-2]))
         self.assertEqual(segments[-2][1], SENTENCE_PAUSES["."])
+
+    def test_pauses_follow_the_chosen_table(self):
+        # Variant E, chosen by ear: full stops 0.55 s, questions 0.65 s, and a paragraph longer than either.
+        self.assertEqual((SENTENCE_PAUSES["."], SENTENCE_PAUSES["?"], SENTENCE_PAUSES["…"]), (0.55, 0.65, 0.65))
+        self.assertEqual((LINE_PAUSE, PARAGRAPH_PAUSE, CLAUSE_GAP), (0.35, 0.90, 0.25))
+
+    def test_a_line_ending_in_a_colon_pauses_less_than_a_full_stop(self):
+        segments = split_segments("Two cases:\nthe first.\nthe second", 400)
+        self.assertEqual([p for _, p in segments], [SENTENCE_PAUSES[":"], SENTENCE_PAUSES["."], 0.0])
+        self.assertLess(SENTENCE_PAUSES[":"], SENTENCE_PAUSES["."])
 
     def test_hard_wrapped_prose_is_rejoined(self):
         wrapped = (
@@ -272,6 +283,38 @@ class TimingTest(unittest.TestCase):
     def test_counts_segments_that_hit_the_phoneme_limit(self):
         r = run([[result(0.1, phonemes="x" * 600), result(0.1, phonemes="x")]], [("t", 0.0)])
         self.assertEqual(r.truncated, 1)
+
+
+@unittest.skipUnless(importlib.util.find_spec("kokoro") and cached_snapshot(), "needs Kokoro and its downloaded model")
+class RealEngineTest(unittest.TestCase):
+    """Speaks with the real model, so CI (bare python3) skips it. Run it with the repo's .venv."""
+
+    def test_two_sentences_sound_natural(self):
+        import tempfile
+        from pathlib import Path
+
+        import soundfile as sf
+
+        from kokoro_engine import Engine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "t.wav"
+            r = Engine().synthesize("It rises. Does it fall? Yes.", out, fmt="WAV", lead=0.25, tail=0.75)
+            x, _ = sf.read(str(out), dtype="float32")
+        quiet = [i for i in range(0, len(x) - TRIM_FRAME, TRIM_FRAME) if not speech_bounds(x[i:i + TRIM_FRAME], 0.002)]
+        runs, start = [], None  # silent stretches of at least 150 ms, in seconds, inside the speech
+        for a, b in zip(quiet, quiet[1:] + [None]):
+            start = a if start is None else start
+            if b != a + TRIM_FRAME:
+                if start > 0 and a + TRIM_FRAME < len(x) - TRIM_FRAME and a + TRIM_FRAME - start >= 0.15 * SR:
+                    runs.append((a + TRIM_FRAME - start) / SR)
+                start = None
+        self.assertEqual(len(runs), 2, runs)
+        self.assertAlmostEqual(runs[0], SENTENCE_PAUSES["."], delta=0.08)
+        self.assertAlmostEqual(runs[1], SENTENCE_PAUSES["?"], delta=0.08)
+        starts = [w["start"] for w in r["words"]]
+        self.assertEqual(starts, sorted(starts))
+        self.assertLessEqual(r["words"][-1]["end"], r["durationSec"])
 
 
 if __name__ == "__main__":

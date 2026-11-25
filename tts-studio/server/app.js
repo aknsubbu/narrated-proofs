@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { toApi } from './db.js';
 import { cleanText, countWords, slugify } from './text.js';
-import { EngineError, MODEL_ID } from './kokoro.js';
+import { AUDIO_VERSION, EngineError, MODEL_ID } from './kokoro.js';
 import { listProjects, makePoster, PROJECT_NAME, readProject } from './video.js';
 import { NotesError, saveAttachments } from './notes.js';
 import { localOnly } from './local.js';
@@ -136,7 +136,7 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
     if (!voice) throw httpError(404, 'Unknown voice');
     const language = languages.find((l) => l.code === voice.lang);
     if (language && !language.available) throw httpError(400, `${language.name} voices are not set up. ${language.hint}`);
-    const file = store.previewPath(voice.voiceId);
+    const file = store.previewPath(voice.voiceId, AUDIO_VERSION);
     if (!fs.existsSync(file)) {
       if (!previews.has(voice.voiceId)) {
         const tmp = `${file}.tmp`;
@@ -222,7 +222,7 @@ export function createApp({ getConfig, store, runner, engine, lessons, versions 
     const voiceId = String(b.voiceId || getConfig().defaultVoiceId).trim();
     const voice = checkVoice(voiceId);
 
-    const configHash = sha(JSON.stringify([cleaned, voiceId, MODEL_ID, settings]));
+    const configHash = sha(JSON.stringify([cleaned, voiceId, MODEL_ID, settings, AUDIO_VERSION]));
     if (!b.force) {
       const existing = store.findByConfig(req.profile.id, configHash);
       if (existing) return res.json({ duplicate: true, generation: toApi(existing) });

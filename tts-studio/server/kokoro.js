@@ -4,6 +4,9 @@ import readline from 'node:readline';
 import { ROOT } from './config.js';
 
 export const MODEL_ID = 'kokoro-82m';
+// Bump when the engine changes how speech sounds (pauses, trimming), together with CACHE_VERSION in
+// video/narrate.py. Audio and voice previews made by an older engine are then spoken again instead of reused.
+export const AUDIO_VERSION = 2;
 const WORKER = path.join(ROOT, 'engine', 'kokoro_engine.py');
 
 export class EngineError extends Error {

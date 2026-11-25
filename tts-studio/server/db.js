@@ -209,7 +209,8 @@ export function createStore(dataDir) {
   );
 
   const audioPath = (id) => path.join(audioDir, `${id}.mp3`);
-  const previewPath = (voiceId) => path.join(previewDir, `${voiceId}.mp3`);
+  /** A voice's sample, named for the engine's audio version so a new engine renders it again. */
+  const previewPath = (voiceId, version) => path.join(previewDir, `${voiceId}.v${version}.mp3`);
   /** A built video, its captions and its poster: ext is mp4, srt, vtt or jpg. */
   const videoPath = (id, ext = 'mp4') => path.join(videoDir, `${id}.${ext}`);
 

@@ -6,7 +6,10 @@ import path from 'node:path';
 import { createStore, MARK_START } from '../db.js';
 import { createRunner } from '../runner.js';
 import { createApp } from '../app.js';
-import { EngineError } from '../kokoro.js';
+import crypto from 'node:crypto';
+import { AUDIO_VERSION, EngineError } from '../kokoro.js';
+import { normalizeSettings } from '../app.js';
+import { cleanText } from '../text.js';
 
 const AUDIO_BYTES = 4000; // size of every fake audio file
 
@@ -126,6 +129,28 @@ test('voice previews are rendered once and then served from disk', async () => {
   assert.equal(calls.length, before + 1);
   assert.equal(calls.at(-1).voice, 'bm_amy');
   assert.equal((await fetch(base + '/api/voices/zz_nobody/preview')).status, 404);
+});
+
+test('a preview file is named for the audio version, so a new engine renders it afresh', async () => {
+  const res = await fetch(base + '/api/voices/af_zed/preview');
+  await res.arrayBuffer();
+  assert.equal(res.status, 200);
+  assert.ok(fs.existsSync(path.join(dataDir, 'previews', `af_zed.v${AUDIO_VERSION}.mp3`)));
+  assert.equal(fs.existsSync(path.join(dataDir, 'previews', 'af_zed.mp3')), false);
+});
+
+test('audio made by an older engine is not offered as a duplicate', async () => {
+  const text = 'Spoken before the pauses changed.';
+  const first = await create({ title: 'Old engine', text });
+  await waitFor(first.data.generation.id);
+  // Make it the row the old engine left: hashed without the audio version.
+  const settings = normalizeSettings({});
+  const oldHash = crypto.createHash('sha256').update(JSON.stringify([cleanText(text, settings), 'af_zed', 'kokoro-82m', settings])).digest('hex');
+  store.db.prepare('UPDATE generations SET config_hash = ? WHERE id = ?').run(oldHash, first.data.generation.id);
+  const again = await create({ title: 'Old engine', text });
+  assert.equal(again.status, 201);
+  assert.equal(again.data.duplicate, false);
+  await waitFor(again.data.generation.id);
 });
 
 test('generates audio end to end and serves it with Range support', async () => {

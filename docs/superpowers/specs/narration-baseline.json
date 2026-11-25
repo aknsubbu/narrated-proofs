@@ -1,0 +1,50 @@
+{
+ "zz-narr-hessian": {
+  "words": 826,
+  "seconds": 336.7,
+  "wpm": 147.2,
+  "check_ok": true,
+  "errors": [],
+  "lead_median": 0.33,
+  "tail_median": 0.982,
+  "inner_gap_median": 0.385,
+  "inner_gap_p10_p90": [
+   0.22,
+   1.064
+  ],
+  "overrun_warnings": [],
+  "timing_problems": []
+ },
+ "zz-narr-poker": {
+  "words": 811,
+  "seconds": 315.73,
+  "wpm": 154.1,
+  "check_ok": true,
+  "errors": [],
+  "lead_median": 0.31,
+  "tail_median": 0.955,
+  "inner_gap_median": 0.975,
+  "inner_gap_p10_p90": [
+   0.199,
+   1.053
+  ],
+  "overrun_warnings": [],
+  "timing_problems": []
+ },
+ "zz-narr-regret": {
+  "words": 894,
+  "seconds": 354.88,
+  "wpm": 151.2,
+  "check_ok": true,
+  "errors": [],
+  "lead_median": 0.315,
+  "tail_median": 0.98,
+  "inner_gap_median": 0.385,
+  "inner_gap_p10_p90": [
+   0.205,
+   1.052
+  ],
+  "overrun_warnings": [],
+  "timing_problems": []
+ }
+}

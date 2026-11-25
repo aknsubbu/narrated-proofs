@@ -58,15 +58,26 @@ SAMPLES = {
     "z": "你好。这就是我朗读时的声音。",
 }
 
-# Pauses added to Kokoro's own, in seconds at speed 1 (they shorten as the speed rises). Kokoro puts almost no gap
-# between sentences it is given together, which sounds rushed, so each sentence is spoken on its
-# own and followed by a pause for how it ended. A line with no full stop (a heading or list
-# item) and a paragraph break pause longer, and a narration block ends on a breath of silence
-# so that one section does not run into the next.
+# Kokoro wraps every call in its own silence, about 0.3 s before the speech and 0.45 s after, and
+# leaves about half a second after a full stop inside one call too. That fixed 0.8 s per call made every
+# sentence end alike, so each result is trimmed to its speech (keeping a few milliseconds either side, as
+# a breath, and fading the edges so the cut does not click) and the gap between two stretches of speech is
+# chosen here, from how the sentence ended. Gaps are measured speech edge to speech edge, in seconds at
+# speed 1, and shorten as the speed rises. A line with no full stop (a heading or list item) and a
+# paragraph break have their own gaps, and a narration block starts and ends on a breath of silence so
+# that one section does not run into the next.
 SENTENCE_PAUSES = {".": 0.25, "!": 0.25, "?": 0.3, "…": 0.35, "。": 0.25, "！": 0.25, "？": 0.3}
 LINE_PAUSE = 0.2
 PARAGRAPH_PAUSE = 0.7
+CLAUSE_GAP = 0.25  # between the pieces of a sentence too long to speak at once: a comma's breath, not a stop
 BLOCK_TAIL = 0.5
+# A frame of 5 ms is silent when its RMS is under TRIM_THRESHOLD (about -66 dBFS): low enough to keep the
+# soft ends of words like "this", high enough that Kokoro's near-silent padding counts as silence.
+TRIM_THRESHOLD = 0.0005
+TRIM_FRAME = 120
+KEEP_BEFORE = 0.030
+KEEP_AFTER = 0.040
+FADE = 0.005
 FORMATS = {".mp3": "MP3", ".wav": "WAV", ".flac": "FLAC", ".ogg": "OGG"}
 # Most CPU threads speech is given on Linux; see cpu_threads().
 MAX_CPU_THREADS = 8
@@ -250,40 +261,101 @@ def list_voices():
 
 # ---------- synthesis ----------
 
-def speak_segments(pipeline, segments, voice, speed, write, pad, on_progress=None):
+def _energy(chunk):
+    if hasattr(chunk, "dot"):  # numpy, in the engine; the tests use plain lists
+        return float(chunk.dot(chunk))
+    return sum(v * v for v in chunk)
+
+
+def speech_bounds(audio, threshold=TRIM_THRESHOLD, frame=TRIM_FRAME):
+    """(start, end) samples of the speech in `audio`: where the first frame loud enough starts and where the
+    last one ends, or None if no frame is. It scans in from each end, so it costs what the silence does."""
+    n = len(audio)
+
+    def loud(i, j):  # mean square over [i, j) at or above threshold², so a short last frame counts fairly
+        return j > i and _energy(audio[i:j]) >= threshold * threshold * (j - i)
+
+    start = next((i for i in range(0, n, frame) if loud(i, min(i + frame, n))), None)
+    if start is None:
+        return None
+    end = min(n, start + frame)
+    for j in range(n, start, -frame):
+        if loud(max(start, j - frame), j):
+            end = j
+            break
+    return start, end
+
+
+def trim_speech(audio):
+    """Cut the silence around the speech in `audio`, keeping KEEP_BEFORE and KEEP_AFTER of it and fading the
+    edges. Returns (piece, head, kept_before, kept_after): head is the samples cut from the front, and the
+    kept values are the silent samples left on each side. Audio with no speech in it is returned whole."""
+    bounds = speech_bounds(audio)
+    if bounds is None:
+        return audio, 0, 0, 0
+    start, end = bounds
+    head = max(0, start - round(KEEP_BEFORE * SAMPLE_RATE))
+    stop = min(len(audio), end + round(KEEP_AFTER * SAMPLE_RATE))
+    piece = audio[head:stop].copy()
+    fade = min(round(FADE * SAMPLE_RATE), len(piece) // 2)
+    for i in range(fade):
+        piece[i] *= i / fade
+        piece[-1 - i] *= i / fade
+    return piece, head, start - head, stop - end
+
+
+def speak_segments(pipeline, segments, voice, speed, write, pad, on_progress=None, lead=0.0, tail=0.0):
     """Run each (segment, pause) through the pipeline, handing audio to `write` and silence
     lengths to `pad`. Returns (samples, truncated, words).
 
+    Each result is trimmed to its speech, and the silence between two stretches of speech is
+    the segment's pause: `lead` before the first, CLAUSE_GAP between results of one segment
+    (Kokoro splits a sentence over its phoneme limit), and `tail` after the last. The margins
+    the trim kept count towards each gap, so the pad is what is left of it.
+
     `words` is [{text, start, end}] in seconds from the start of the output. Kokoro times
-    each token against its own result's audio, so each is offset by the samples written
-    before that result, pauses included. Voices without word timing (anything but
+    each token against its own result's untrimmed audio, so each is moved back by what the
+    trim cut and kept inside the piece (Kokoro's last word runs into the silence after it),
+    then offset by the samples written before. Voices without word timing (anything but
     English) give an empty list.
     """
+    rate = max(speed, 0.5)
     samples = truncated = 0
     words = []
+    gap, kept = lead, 0  # the gap before the next piece, and the silence already at the end of the output
+
+    def rest(seconds, margin):
+        nonlocal samples
+        n = max(0, round(seconds / rate * SAMPLE_RATE) - margin)
+        if n:
+            pad(n)
+            samples += n
+
     for n, (segment, pause) in enumerate(segments, 1):
         for result in pipeline(segment, voice=voice, speed=speed, split_pattern=None):
             if result.audio is None:
                 continue
             truncated += len(result.phonemes or "") >= MAX_PHONEMES
-            offset = samples / SAMPLE_RATE
+            piece, head, kept_before, kept_after = trim_speech(result.audio.detach().cpu().numpy())
+            rest(gap, kept + kept_before)
+            offset, cut, length = samples / SAMPLE_RATE, head / SAMPLE_RATE, len(piece) / SAMPLE_RATE
             for token in getattr(result, "tokens", None) or []:
                 if token.start_ts is None or token.end_ts is None:
                     continue
                 words.append({
                     "text": token.text,
-                    "start": round(offset + token.start_ts, 4),
-                    "end": round(offset + token.end_ts, 4),
+                    "start": round(offset + min(max(token.start_ts - cut, 0.0), length), 4),
+                    "end": round(offset + min(max(token.end_ts - cut, 0.0), length), 4),
                 })
-            audio = result.audio.detach().cpu().numpy()
-            write(audio)
-            samples += len(audio)
-        if pause and samples:
-            silence = int(pause / max(speed, 0.5) * SAMPLE_RATE)
-            pad(silence)
-            samples += silence
+            write(piece)
+            samples += len(piece)
+            gap, kept = CLAUSE_GAP, kept_after
+        if samples:
+            gap = pause  # the next segment's first piece; results within one segment keep CLAUSE_GAP
         if on_progress:
             on_progress(n, len(segments))
+    if samples:
+        rest(tail, kept)
     return samples, truncated, words
 
 class Engine:

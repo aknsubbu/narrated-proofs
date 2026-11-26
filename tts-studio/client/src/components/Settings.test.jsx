@@ -168,4 +168,46 @@ describe('Settings', () => {
     fireEvent.blur(cap);
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ costs: { monthCapUsd: 30 } }));
   });
+
+  it('has five sections, in the order someone sets things up', async () => {
+    await show();
+    const tabs = within(screen.getByRole('tablist', { name: 'Settings sections' })).getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs).toEqual(['Who writes lessons', 'Lesson defaults', 'Spending', 'Connect Claude', 'People and this computer']);
+  });
+
+  it('goes back Home, not to a library', async () => {
+    await show();
+    expect(screen.getByRole('button', { name: '← Home' })).toBeTruthy();
+  });
+
+  it('shows the providers that are set up, and keeps the rest behind one control', async () => {
+    await show();
+    const more = screen.getByText(/Set up another provider/).closest('details');
+    expect(more.hasAttribute('open')).toBe(false);
+    const ready = [...document.querySelectorAll('.providers > li.ready')].filter((li) => !more.contains(li));
+    expect(ready.length).toBeGreaterThan(0);
+    expect(more.querySelectorAll('li.ready').length).toBe(0);
+  });
+
+  it('puts connecting Claude and what Claude may change on one page, connecting first', async () => {
+    await show('claude');
+    const connect = (await screen.findByText('Make lessons from Claude')).closest('section');
+    const lessons = screen.getByText('Lessons Claude starts').closest('section');
+    expect(connect.classList.contains('connect-first')).toBe(true);
+    expect(lessons.classList.contains('connect-first')).toBe(false);
+  });
+
+  it('opens the merged page from the old addresses', async () => {
+    await show('connect');
+    expect(await screen.findByText('Lessons Claude starts')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Connect Claude' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('shows where things are, with every change, on the People and this computer page', async () => {
+    await show('storage');
+    expect(screen.getByRole('tab', { name: 'People and this computer' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('Where things are')).toBeTruthy();
+    expect(screen.getByText('/x/data')).toBeTruthy();
+    expect(screen.getByText('All changes')).toBeTruthy();
+  });
 });

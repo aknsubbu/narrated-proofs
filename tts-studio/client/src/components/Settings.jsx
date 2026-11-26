@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
-import { fmtUsd, SETTINGS_SECTIONS, timeAgo } from '../utils.js';
+import { fmtUsd, SETTINGS_SECTIONS, settingsSection, timeAgo } from '../utils.js';
 import { EFFORTS, PROVIDER_KINDS, WRITER_STEPS } from '../../../shared/providers.js';
 import { LESSON_MINUTES } from '../../../shared/limits.js';
 import { QUALITIES } from './Workspace.jsx';
@@ -444,14 +444,14 @@ export default function Settings({ profile = null, section: asked, voices, onClo
     return (
       <div className="workspace settings" role="dialog" aria-modal="true" aria-label="Settings">
         <div className="ws-loading">
-          <button className="link" onClick={onClose}>← Library</button>
+          <button className="link" onClick={onClose}>← Home</button>
           <p className="hint">{error || 'Loading…'}</p>
         </div>
       </div>
     );
   }
   // The House section is the Owner's: anyone else who opens its address is shown the first one.
-  const section = asked === 'house' && !data.house ? 'writer' : asked;
+  const section = settingsSection(asked);
   const v = data.values;
   const locks = data.locks || {};
   const pageLocks = Object.fromEntries(Object.entries(locks).map(([k, e]) => [k.replace(/^lesson\.defaults\./, 'page.'), e]));
@@ -461,14 +461,14 @@ export default function Settings({ profile = null, section: asked, voices, onClo
       <div className="ws-top">
         <header className="ws-head">
           <div className="ws-row">
-            <button className="link ws-back" onClick={onClose}>← Library</button>
+            <button className="link ws-back" onClick={onClose}>← Home</button>
             <h2 className="settings-title">{profile ? 'Your settings' : 'Settings'}</h2>
             <span className="grow" />
             {anyUndoable && <button className="btn" onClick={() => undo()}>Undo last change</button>}
           </div>
         </header>
         <nav className="ws-tabs" role="tablist" aria-label="Settings sections">
-          {SETTINGS_SECTIONS.filter(([id]) => id !== 'house' || data.house).map(([id, label]) => (
+          {SETTINGS_SECTIONS.map(([id, label]) => (
             <a key={id} role="tab" aria-selected={section === id} className={section === id ? 'on' : ''} href={`#settings/${id}`}>{label}</a>
           ))}
         </nav>
@@ -487,9 +487,18 @@ export default function Settings({ profile = null, section: asked, voices, onClo
             <section className="block">
               <h3>Providers</h3>
               <p className="hint">Set up any you want to use. Keys are kept in {data.keysKeptIn === 'the macOS Keychain' ? "your Mac's Keychain" : 'a file only you can read'} and never shown again.</p>
+              {/* What is set up comes first; the rest wait behind one control instead of a wall of cards. */}
               <ul className="providers">
-                {data.providers.map((p) => <ProviderCard key={p.id} p={p} act={act} busy={busy} host={data.host} />)}
+                {data.providers.filter((p) => p.configured).map((p) => <ProviderCard key={p.id} p={p} act={act} busy={busy} host={data.host} />)}
               </ul>
+              {data.providers.some((p) => !p.configured) && (
+                <details className="more-providers">
+                  <summary>{data.providers.some((p) => p.configured) ? 'Set up another provider' : 'Set up a provider'} <small>({data.providers.filter((p) => !p.configured).length} available)</small></summary>
+                  <ul className="providers">
+                    {data.providers.filter((p) => !p.configured).map((p) => <ProviderCard key={p.id} p={p} act={act} busy={busy} host={data.host} />)}
+                  </ul>
+                </details>
+              )}
               <form
                 className="row wrap add-provider"
                 onSubmit={(e) => {
@@ -608,10 +617,10 @@ export default function Settings({ profile = null, section: asked, voices, onClo
           </>
         )}
 
-        {section === 'connect' && (
-          <section className="block">
+        {section === 'claude' && (
+          <section className="block connect-first">
             <h3>Make lessons from Claude</h3>
-            <p className="hint">Claude can start a lesson from a conversation, follow its stages, search your library and fetch the video. Lessons it starts use the settings under Claude (MCP).</p>
+            <p className="hint">Claude can start a lesson from a conversation, follow its stages, search your library and fetch the video. Lessons it starts use the settings below.</p>
             {!connect ? <p className="hint">Loading…</p> : (
               <>
                 <h4>{profile ? `Connect Claude as ${profile.name}` : 'Connect Claude to you'}</h4>
@@ -672,7 +681,7 @@ export default function Settings({ profile = null, section: asked, voices, onClo
           </section>
         )}
 
-        {section === 'storage' && (
+        {section === 'house' && (
           <section className="block">
             <h3>Where things are</h3>
             <dl className="details">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MARK_END, MARK_START, estimateSeconds, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseMakeRoute, parseRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
+import { MARK_END, MARK_START, estimateSeconds, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseMakeRoute, parseRoute, parseSettingsRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
 
 describe('formatting', () => {
   it('shows lengths the way a person says them', () => {
@@ -77,6 +77,20 @@ describe('the still on screen during the animatic', () => {
     expect(fmtUsd(0.696)).toBe('$0.70');
     expect(fmtUsd(0.042)).toBe('$0.042');
     expect(fmtUsd(null)).toBe('—');
+  });
+});
+
+describe('the Settings address', () => {
+  it('opens the section asked for, and the first when it is unknown', () => {
+    expect(parseSettingsRoute('#settings')).toEqual({ section: 'writer' });
+    expect(parseSettingsRoute('#settings/costs')).toEqual({ section: 'costs' });
+    expect(parseSettingsRoute('#settings/nonsense')).toEqual({ section: 'writer' });
+    expect(parseSettingsRoute('#lesson/abc')).toBeNull();
+  });
+
+  it('still opens the right page from the addresses of sections that were merged', () => {
+    expect(parseSettingsRoute('#settings/connect')).toEqual({ section: 'claude' });
+    expect(parseSettingsRoute('#settings/storage')).toEqual({ section: 'house' });
   });
 });
 

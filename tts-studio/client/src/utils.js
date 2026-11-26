@@ -161,20 +161,23 @@ export function parseRoute(hash) {
 export const routeHash = (id, tab = 'watch') => `#lesson/${id}/${tab}`;
 
 export const SETTINGS_SECTIONS = [
-  ['writer', 'Lesson writer'],
+  ['writer', 'Who writes lessons'],
   ['defaults', 'Lesson defaults'],
-  ['claude', 'Claude (MCP)'],
-  ['costs', 'Costs'],
-  ['connect', 'Connect Claude'],
-  ['storage', 'Storage'],
-  ['house', 'House'], // the Owner's: how many people share this install
+  ['costs', 'Spending'],
+  ['claude', 'Connect Claude'],
+  ['house', 'People and this computer'],
 ];
+
+/** Sections that were merged into another: their old addresses still open the right one. */
+export const SETTINGS_ALIASES = { connect: 'claude', storage: 'house' };
+export const settingsSection = (id) => SETTINGS_ALIASES[id] || id;
 
 /** The Settings page's section, from "#settings/<section>", or null when Settings is not open. */
 export function parseSettingsRoute(hash) {
   const m = /^#settings(?:\/(\w+))?$/.exec(String(hash || ''));
   if (!m) return null;
-  return { section: SETTINGS_SECTIONS.some(([s]) => s === m[1]) ? m[1] : 'writer' };
+  const id = settingsSection(m[1]);
+  return { section: SETTINGS_SECTIONS.some(([s]) => s === id) ? id : 'writer' };
 }
 
 /** What the address shows, kept in step with the back and forward buttons. */

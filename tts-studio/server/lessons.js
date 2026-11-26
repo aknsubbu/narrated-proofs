@@ -441,8 +441,9 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
    * Before the spend table, a running job kept its total in build/author/spent.json in the project, and a lesson's
    * settings took it from there when the job failed. A lesson the server was stopped under (or killed) never got that far,
    * so its file can hold more than the migration found on the lesson. Take the difference into the table, once, and
-   * remove the file: the new writer never makes one. A file that holds nothing more is just removed. Safe to run again.
-   * Returns how many lessons had a file.
+   * rename the file to spent.json.imported: the new writer never makes one, and the backup migrate() took still
+   * pairs with it (to go back, restore that copy and rename the files back). Safe to run again. Returns how many
+   * lessons had a file.
    */
   function importLegacySpend() {
     let found = 0;
@@ -470,7 +471,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       const host = Math.max(0, (Number(spent.hostUsd) || 0) - known.host);
       store.db.transaction(() => {
         if (usd > 0 || host > 0) store.spend.add({ profileId: g.profile_id, generationId: g.id, costUsd: usd, hostUsd: host, at, step: 'before the spend table' });
-        fs.rmSync(file, { force: true });
+        fs.renameSync(file, `${file}.imported`);
       })();
     }
     return found;

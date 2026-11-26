@@ -191,10 +191,11 @@ test('what a lesson had spent when the server stopped under the old writer is ke
   fs.writeFileSync(path.join(log, 'spent.json'), JSON.stringify({ usd: 0.8, hostUsd: 0.6 }));
   const before = store.stats(roomId);
   assert.ok(lessons.importLegacySpend() >= 1);
-  assert.equal(lessons.importLegacySpend(), 0, 'the file is gone once taken');
+  assert.equal(lessons.importLegacySpend(), 0, 'the file is set aside once taken');
   const after = store.stats(roomId);
   assert.equal(Math.round((after.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 0.5);
   assert.equal(Math.round((after.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.4);
   assert.deepEqual(store.spend.open('i1'), { usd: 0.8, host: 0.6 }, 'a retry continues from the whole of it');
   assert.equal(fs.existsSync(path.join(log, 'spent.json')), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(log, 'spent.json.imported'), 'utf8')), { usd: 0.8, hostUsd: 0.6 }, 'kept beside the backup, not deleted');
 });

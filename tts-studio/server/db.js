@@ -150,7 +150,10 @@ export function createStore(dataDir, { strictMoves = Boolean(process.env.NODE_TE
     const from = statusStmt.get(id)?.status;
     if (from === undefined || canMove(from, to)) return;
     const message = `Item ${id} cannot move from ${from} to ${to}`;
-    if (strictMoves) throw new Error(message);
+    if (strictMoves) {
+      console.error(message); // so a caller that catches the throw cannot hide it from the tests
+      throw new Error(message);
+    }
     console.warn(`${message}; made the change anyway so it is not left stuck.`);
   }
 

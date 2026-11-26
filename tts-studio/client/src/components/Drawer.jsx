@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { fmtBytes, fmtDate, fmtDuration, fmtNumber, highlightParts, isActive } from '../utils.js';
+import { readProgress, resumeAt, saveProgress } from '../progress.js';
 import { Marked, Progress, StatusBadge } from './Library.jsx';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
@@ -45,9 +46,33 @@ function Player({ src, autoplay }) {
 }
 
 export function VideoPlayer({ g, autoplay, videoRef }) {
+  const lastSaved = useRef(0);
+  // Remember where the learner is, at most every few seconds, and on pause and end.
+  const save = (e) => {
+    const v = e.currentTarget;
+    saveProgress(g.id, v.ended ? v.duration : v.currentTime, v.duration);
+    lastSaved.current = Date.now();
+  };
+  // Pick up where they left off, unless they finished it (then it starts over).
+  const resume = (e) => {
+    const at = resumeAt(readProgress()[g.id]);
+    if (at > 0 && at < e.currentTarget.duration) e.currentTarget.currentTime = at;
+  };
   return (
     <div className="player">
-      <video ref={videoRef} key={g.videoUrl} src={g.videoUrl} controls preload="metadata" autoPlay={autoplay} playsInline>
+      <video
+        ref={videoRef}
+        key={g.videoUrl}
+        src={g.videoUrl}
+        controls
+        preload="metadata"
+        autoPlay={autoplay}
+        playsInline
+        onLoadedMetadata={resume}
+        onTimeUpdate={(e) => Date.now() - lastSaved.current > 4000 && save(e)}
+        onPause={save}
+        onEnded={save}
+      >
         <track kind="captions" src={`/api/generations/${g.id}/captions.vtt`} srcLang="en" label="Captions" default />
         {g.settings?.lesson?.chaptered && <track kind="chapters" src={`/api/generations/${g.id}/chapters.vtt`} srcLang="en" label="Chapters" />}
       </video>

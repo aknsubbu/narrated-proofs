@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MARK_END, MARK_START, estimateSeconds, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
+import { MARK_END, MARK_START, estimateSeconds, fmtBytes, fmtDuration, fmtUsd, highlightParts, parseMakeRoute, parseRoute, parseSnippet, routeHash, stillAt, stripExt } from './utils.js';
 
 describe('formatting', () => {
   it('shows lengths the way a person says them', () => {
@@ -77,5 +77,19 @@ describe('the still on screen during the animatic', () => {
     expect(fmtUsd(0.696)).toBe('$0.70');
     expect(fmtUsd(0.042)).toBe('$0.042');
     expect(fmtUsd(null)).toBe('—');
+  });
+});
+
+describe('the Make page address', () => {
+  it('opens a video lesson by default and audio on request', () => {
+    expect(parseMakeRoute('#make')).toEqual({ kind: 'lesson' });
+    expect(parseMakeRoute('#make/audio')).toEqual({ kind: 'audio' });
+    expect(parseMakeRoute('#make/anything')).toEqual({ kind: 'lesson' });
+  });
+
+  it('leaves every other address alone', () => {
+    expect(parseMakeRoute('')).toBeNull();
+    expect(parseMakeRoute('#lesson/abc/watch')).toBeNull();
+    expect(parseMakeRoute('#makeover')).toBeNull();
   });
 });

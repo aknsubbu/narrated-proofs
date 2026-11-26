@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
-import { isActive, needsYou, routeHash, stripExt, useDebounced, useLocalStorage, usePeopleRoute, useRoute, useSettingsRoute } from './utils.js';
-import Header from './components/Header.jsx';
+import { isActive, needsYou, routeHash, stripExt, useDebounced, useLocalStorage, useMakeRoute, usePeopleRoute, useRoute, useSettingsRoute } from './utils.js';
+import { setProgressScope } from './progress.js';
+import Header, { Footer } from './components/Header.jsx';
+import Home from './components/Home.jsx';
 import Composer from './components/Composer.jsx';
 import Library from './components/Library.jsx';
 import Drawer from './components/Drawer.jsx';
@@ -26,6 +28,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
   // What this browser remembers is per profile, so housemates on one computer do not share a voice or a mode.
   // The Owner keeps the names used before profiles existed.
   const scope = profile && !profile.isOwner ? `.${profile.id}` : '';
+  setProgressScope(scope); // where each learner is in each lesson is kept per profile too
   const [health, setHealth] = useState(null);
   const [voices, setVoices] = useState([]);
   const [languages, setLanguages] = useState([]);
@@ -45,7 +48,10 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
   const [filters, setFilters] = useState({ q: '', status: '', voiceId: '', tag: '', favorite: false, sort: '' });
   const [limit, setLimit] = useState(30);
   const [list, setList] = useState({ items: [], total: 0, loaded: false, error: '' });
+  // Home's lessons are the learner's own latest, whatever the library below is filtered to.
+  const [recent, setRecent] = useState({ items: [], loaded: false });
   const [selected, setSelected] = useState(null); // { id, autoplay } for an audio file's panel
+  const makeRoute = useMakeRoute(); // the Make page, from #make or #make/audio
   const route = useRoute(); // a lesson's workspace, from #lesson/<id>/<tab>
   const settingsRoute = useSettingsRoute(); // the Settings page, from #settings/<section>
   const people = usePeopleRoute(); // #profile: managing the signed-in profile
@@ -92,6 +98,12 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
       if (mine === reqId.current) setList({ items: r.items, total: r.total, loaded: true, error: '' });
     } catch (e) {
       if (mine === reqId.current) setList((l) => ({ ...l, loaded: true, error: e.message }));
+    }
+    try {
+      const r = await api.list({ kind: 'video', limit: 40 });
+      if (mine === reqId.current) setRecent({ items: r.items, loaded: true });
+    } catch {
+      if (mine === reqId.current) setRecent((x) => ({ ...x, loaded: true }));
     }
   }, []);
 
@@ -172,6 +184,14 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
     };
     es.addEventListener('generation', (e) => {
       const g = JSON.parse(e.data);
+      setRecent((r) => {
+        const at = r.items.findIndex((i) => i.id === g.id);
+        if (at === -1) return r;
+        if (g.deleted) return { ...r, items: r.items.filter((i) => i.id !== g.id) };
+        const items = r.items.slice();
+        items[at] = { ...items[at], ...g };
+        return { ...r, items };
+      });
       setList((l) => {
         const at = l.items.findIndex((i) => i.id === g.id);
         if (at === -1) return l;
@@ -251,6 +271,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
     }
     if (created) toast({ kind: 'success', text: created === 1 ? 'Queued 1 script.' : `Queued ${created} scripts.` });
     await Promise.all([refreshList(), refreshStats()]);
+    if (created) goHome();
     return handled;
   }
 
@@ -281,6 +302,22 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
   const lessonAddRef = useRef(null); // set by LessonPanel
   const modeRef = useRef(mode);
   modeRef.current = mode;
+
+  // The Make page's two tabs are the two modes, so a dropped file lands in the one on screen.
+  const makeKind = makeRoute?.kind;
+  useEffect(() => {
+    if (makeKind) setMode(makeKind === 'audio' ? 'audio' : 'lessons');
+  }, [makeKind, setMode]);
+  const page = makeRoute ? 'make' : 'home';
+
+  // Once something is queued, go home: that is where "being made now" is shown.
+  const goHome = () => {
+    if (window.location.hash.startsWith('#make')) window.location.hash = '';
+  };
+  const queued = async () => {
+    await Promise.all([refreshList(), refreshStats()]);
+    goHome();
+  };
 
   async function generateDrafts() {
     const batch = drafts;
@@ -322,8 +359,11 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
       setDragging(false);
       // In lessons mode a dropped file is a note for the lesson being written; otherwise a script.
       const files = [...e.dataTransfer.files];
-      if (modeRef.current === 'lessons') lessonAddRef.current?.(files);
-      else addFilesRef.current(files);
+      if (modeRef.current === 'lessons') {
+        // A note belongs to a lesson being made, so open Make for it.
+        if (!window.location.hash.startsWith('#make')) window.location.hash = '#make';
+        lessonAddRef.current?.(files);
+      } else addFilesRef.current(files);
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragover', over);
@@ -392,7 +432,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
 
   // Lessons open full width at #lesson/<id>/<tab>; audio files in the side panel.
   const openItem = (id, play = false) => {
-    const item = list.items.find((i) => i.id === id);
+    const item = list.items.find((i) => i.id === id) || recent.items.find((i) => i.id === id);
     if (item?.kind === 'video') {
       setAutoplay(play);
       window.location.hash = routeHash(id, !needsYou(item) ? 'watch' : item.settings?.lesson?.phase === 'outline' ? 'outline' : 'storyboard');
@@ -437,18 +477,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         </div>
       )}
 
-      <Header
-        profile={profile}
-        health={health}
-        stats={stats}
-        mode={mode}
-        setMode={(m) => { setLimit(30); setMode(m); }}
-        onShowWaiting={() => {
-          setMode('lessons');
-          setLimit(30);
-          setFilters((f) => ({ ...f, status: 'awaiting' }));
-        }}
-      />
+      <Header profile={profile} page={page} />
 
       {engineStatus === 'error' && (
         <div className="banner error" role="alert">
@@ -475,9 +504,16 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         </div>
       )}
 
-      <div className="layout">
-        {/* Both columns stay mounted, so switching modes never loses a lesson or a batch in progress. */}
-        <div className="side">
+      {/* Both pages stay mounted, so going home never loses a lesson or a batch half-made on Make. */}
+      <div className="page make-page" hidden={page !== 'make'}>
+        <div className="make-head">
+          <h2>Make something</h2>
+          <nav className="lib-tabs" role="tablist" aria-label="What to make">
+            <a role="tab" href="#make" aria-selected={mode !== 'audio'} className={mode !== 'audio' ? 'on' : ''}>Video lesson</a>
+            <a role="tab" href="#make/audio" aria-selected={mode === 'audio'} className={mode === 'audio' ? 'on' : ''}>Audio from text</a>
+          </nav>
+        </div>
+        <div className="make-body">
           <aside className="composer" hidden={mode !== 'lessons'}>
             <LessonPanel
               voices={voices}
@@ -486,9 +522,9 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
               toast={toast}
               addRef={lessonAddRef}
               studio={studio}
-              onQueued={() => Promise.all([refreshList(), refreshStats()])}
+              onQueued={queued}
             />
-            <VideoPanel toast={toast} onQueued={() => Promise.all([refreshList(), refreshStats()])} />
+            <VideoPanel toast={toast} onQueued={queued} />
           </aside>
           <Composer
             hidden={mode !== 'audio'}
@@ -509,9 +545,14 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
             onGenerate={generateDrafts}
           />
         </div>
+      </div>
+
+      <div className="page home-page" hidden={page !== 'home'}>
+        <Home profile={profile} lessons={recent.items} loaded={recent.loaded} onOpen={openItem} />
         <Library
           profile={profile}
           mode={mode}
+          setMode={(m) => { setLimit(30); setMode(m); }}
           list={list}
           filters={filters}
           setFilters={(f) => {
@@ -529,6 +570,8 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
           onMore={() => setLimit((n) => n + 30)}
         />
       </div>
+
+      <Footer health={health} />
 
       {settingsRoute && (
         <Settings

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { fmtDuration, fmtNumber, fmtUsd, isActive, needsYou, parseSnippet, timeAgo } from '../utils.js';
+import { fractionOf, stateOf, useProgress } from '../progress.js';
 
 export function Marked({ parts }) {
   return parts.map((p, i) => (p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>));
@@ -43,7 +44,28 @@ export function Progress({ g }) {
   );
 }
 
-function Card({ g, selected, onOpen, onFavorite, onDelete, onCancel, onRetry }) {
+/** How far a learner is through a finished lesson: a thin bar while partway, a tick when done. */
+function Watched({ p }) {
+  const state = stateOf(p);
+  if (state === 'new') return null;
+  if (state === 'finished') return <span className="watched done">✓ Finished</span>;
+  return (
+    <div className="watched" title={`${fmtDuration(p.t)} of ${fmtDuration(p.d)}`}>
+      <div className="meter slim" role="progressbar" aria-label="Watched" aria-valuenow={Math.round(fractionOf(p) * 100)} aria-valuemin={0} aria-valuemax={100}>
+        <div className="meter-fill" style={{ width: `${Math.max(4, fractionOf(p) * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+const WATCH_FILTERS = [
+  ['', 'All'],
+  ['started', 'In progress'],
+  ['new', 'Not started'],
+  ['finished', 'Finished'],
+];
+
+function Card({ g, selected, progress, onOpen, onFavorite, onDelete, onCancel, onRetry }) {
   const titleParts = parseSnippet(g.titleSnippet);
   const snippetParts = parseSnippet(g.snippet);
   // A lesson keeps playing its last built version while a newer one is written or built.
@@ -87,6 +109,7 @@ function Card({ g, selected, onOpen, onFavorite, onDelete, onCancel, onRetry }) 
         <p className="card-snippet">{snippetParts.length ? <Marked parts={snippetParts} /> : g.preview}</p>
 
         {isActive(g) && <Progress g={g} />}
+        {g.kind === 'video' && playable && <Watched p={progress} />}
         {g.error && g.status !== 'done' && <p className="card-error">{g.error}</p>}
 
         <div className="card-meta">
@@ -150,8 +173,14 @@ function Card({ g, selected, onOpen, onFavorite, onDelete, onCancel, onRetry }) 
 
 export default function Library({
   profile, mode, list, filters, setFilters, stats, tags, selectedId,
-  onOpen, onFavorite, onDelete, onCancel, onRetry, onMore,
+  onOpen, onFavorite, onDelete, onCancel, onRetry, onMore, setMode,
 }) {
+  const progress = useProgress();
+  const [watch, setWatch] = useState(''); // '', 'started', 'new', 'finished': what the learner has watched
+  const lessons = mode !== 'audio';
+  const shown = lessons && watch
+    ? list.items.filter((g) => g.kind === 'video' && Boolean(g.videoUrl) && stateOf(progress[g.id]) === watch)
+    : list.items;
   const set = (patch) => setFilters({ ...filters, ...patch });
   const hasFilters = Boolean(filters.q || filters.status || filters.voiceId || filters.tag || filters.favorite);
   const searching = Boolean(filters.q.trim());
@@ -159,7 +188,16 @@ export default function Library({
   const noun = (n) => (mode === 'audio' ? (n === 1 ? 'script' : 'scripts') : n === 1 ? 'video' : 'videos');
 
   return (
-    <main className="library">
+    <main className="library" aria-label="Your library">
+      {setMode && (
+        <div className="lib-tabs" role="tablist" aria-label="What to show">
+          {[['lessons', 'Lessons'], ['audio', 'Audio']].map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={(mode === 'audio' ? 'audio' : 'lessons') === id} className={(mode === 'audio' ? 'audio' : 'lessons') === id ? 'on' : ''} onClick={() => { setWatch(''); setMode(id); }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <section className="panel toolbar">
         <div className="search">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -175,6 +213,16 @@ export default function Library({
             aria-label="Search the library"
           />
         </div>
+
+        {lessons && (
+          <div className="watch-chips" role="group" aria-label="Show lessons by progress">
+            {WATCH_FILTERS.map(([id, label]) => (
+              <button key={id || 'all'} className={`tag clickable${watch === id ? ' on' : ''}`} aria-pressed={watch === id} onClick={() => setWatch(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="filters">
           <select className="input" value={filters.status} onChange={(e) => set({ status: e.target.value })} aria-label="Status">
@@ -252,12 +300,12 @@ export default function Library({
               {mode === 'audio' ? (
                 <>
                   <h2>No audio yet</h2>
-                  <p>Drop a .txt script on the left. It’s saved here with its audio, and you can search every script later.</p>
+                  <p>Turn a script into audio from <a href="#make/audio">Make</a>. It’s saved here with its audio, and you can search every script later.</p>
                 </>
               ) : (
                 <>
                   <h2>{profile ? `Welcome, ${profile.name}` : 'No lessons yet'}</h2>
-                  <p>{profile ? 'This library is yours alone: no one else on this computer sees your lessons, settings or keys. ' : ''}Name a topic on the left and drop in your notes, photos of handwritten pages or PDFs. The finished video lands here.</p>
+                  <p>{profile ? 'This library is yours alone: no one else on this computer sees your lessons, settings or keys. ' : ''}Name a topic and add your notes, photos of handwritten pages or PDFs, from <a href="#make">Make a lesson</a>. The finished video lands here.</p>
                 </>
               )}
             </>
@@ -265,11 +313,19 @@ export default function Library({
         </section>
       )}
 
+      {list.loaded && list.items.length > 0 && shown.length === 0 && (
+        <section className="panel empty">
+          <h2>Nothing here yet</h2>
+          <p>None of the lessons loaded so far are {WATCH_FILTERS.find(([id]) => id === watch)?.[1].toLowerCase()}.</p>
+        </section>
+      )}
+
       <div className="cards">
-        {list.items.map((g) => (
+        {shown.map((g) => (
           <Card
             key={g.id}
             g={g}
+            progress={progress[g.id]}
             selected={g.id === selectedId}
             onOpen={onOpen}
             onFavorite={onFavorite}

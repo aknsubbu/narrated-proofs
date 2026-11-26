@@ -207,6 +207,13 @@ export function stillAt(blocks, index, t) {
   return null;
 }
 
-/** The pages about people: "#who" is the "Who's watching?" screen, "#profile" manages the signed-in profile. */
+/** The Make page: "#make" starts a video lesson, "#make/audio" turns a script into audio. */
+export function parseMakeRoute(hash) {
+  const m = /^#make(?:\/(\w+))?$/.exec(String(hash || ''));
+  return m ? { kind: m[1] === 'audio' ? 'audio' : 'lesson' } : null;
+}
+export const useMakeRoute = () => useHash(parseMakeRoute);
+
+/** The pages about people:"#who" is the "Who's watching?" screen, "#profile" manages the signed-in profile. */
 export const parsePeopleRoute = (hash) => (hash === '#who' ? 'who' : hash === '#profile' ? 'profile' : null);
 export const usePeopleRoute = () => useHash(parsePeopleRoute);

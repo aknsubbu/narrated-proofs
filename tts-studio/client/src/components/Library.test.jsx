@@ -29,6 +29,8 @@ describe('library cards for lessons', () => {
     expect(within(card).getByText('Storyboard ready: have a look')).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: 'Look over Waiting lesson' }));
     expect(props.onOpen).toHaveBeenCalledWith('wait', false);
+    expect(within(card).queryByText('$0.70')).toBeNull(); // what it cost is behind the menu, not on the card
+    fireEvent.click(within(card).getByRole('button', { name: 'More about Waiting lesson' }));
     expect(within(card).getByText('$0.70')).toBeTruthy();
   });
 
@@ -39,8 +41,45 @@ describe('library cards for lessons', () => {
     expect(play.disabled).toBe(false);
     fireEvent.click(play);
     expect(props.onOpen).toHaveBeenCalledWith('again', true);
+    expect(within(card).queryByText('v2')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'More about Rebuilding lesson' }));
     expect(within(card).getByText('v2')).toBeTruthy();
     expect(within(card).getByRole('progressbar')).toBeTruthy();
+  });
+
+  it('keeps voice, size, download and delete in the card menu', () => {
+    const props = show();
+    const card = screen.getByText('Rebuilding lesson').closest('article');
+    expect(within(card).queryByText('Heart')).toBeNull();
+    expect(within(card).queryByText(/words/)).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'More about Rebuilding lesson' }));
+    expect(within(card).getByText('Heart')).toBeTruthy();
+    expect(within(card).getByText('391 words')).toBeTruthy();
+    expect(within(card).getByRole('link', { name: 'Download MP4' }).getAttribute('href')).toBe('/v?download=1');
+    fireEvent.click(within(card).getByRole('button', { name: 'Delete…' }));
+    expect(props.onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'again' }));
+    expect(props.onOpen).not.toHaveBeenCalled(); // using the menu does not open the lesson
+  });
+
+  it('closes the menu on Escape', () => {
+    show();
+    const card = screen.getByText('Rebuilding lesson').closest('article');
+    fireEvent.click(within(card).getByRole('button', { name: 'More about Rebuilding lesson' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(within(card).queryByText('Heart')).toBeNull();
+  });
+
+  it('folds the topic chips away until asked for', () => {
+    const props = {
+      mode: 'lessons', list: { items: ITEMS, total: 2, loaded: true, error: '' },
+      filters: { q: '', status: '', voiceId: '', tag: '', favorite: false, sort: '' }, setFilters: vi.fn(),
+      stats: { voices: [] }, tags: [{ tag: 'linear-algebra', n: 3 }, { tag: 'pytorch', n: 2 }], selectedId: null,
+      onOpen: vi.fn(), onFavorite: vi.fn(), onDelete: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), onMore: vi.fn(),
+    };
+    render(<Library {...props} />);
+    expect(screen.queryByText(/#linear-algebra/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Topics \(2\)/ }));
+    expect(screen.getByText(/#linear-algebra/)).toBeTruthy();
   });
 
   it('can be filtered to the lessons that need you', () => {

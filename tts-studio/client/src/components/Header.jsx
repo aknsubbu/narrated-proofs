@@ -34,7 +34,7 @@ export default function Header({ profile, page }) {
           <span aria-hidden="true">＋</span> Make a lesson
         </a>
         <ProfileMenu profile={profile} />
-        <a className="icon-btn gear" href="#settings" aria-label="Settings" title="Settings">
+        <a className={`icon-btn gear${page === 'settings' ? ' on' : ''}`} href="#settings" aria-label="Settings" aria-current={page === 'settings' ? 'page' : undefined} title="Settings">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.4h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)" />
           </svg>

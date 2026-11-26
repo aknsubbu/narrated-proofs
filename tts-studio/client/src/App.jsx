@@ -300,7 +300,8 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
   const addFilesRef = useRef(addFiles);
   addFilesRef.current = addFiles;
   const lessonAddRef = useRef(null); // set by LessonPanel
-  const page = makeRoute ? 'make' : 'home';
+  // Where the learner is, for the header: the overlays sit above the pages, so they win.
+  const page = settingsRoute ? 'settings' : people === 'profile' ? 'profile' : route ? 'lesson' : makeRoute ? 'make' : 'home';
   // What a dropped file is for, and which form shows: the Make page's tab when it is open, otherwise
   // the library's. The two are kept apart, so making audio does not flip Home to the audio library.
   const making = makeRoute ? (makeRoute.kind === 'audio' ? 'audio' : 'lessons') : mode;
@@ -502,7 +503,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
       )}
 
       {/* Both pages stay mounted, so going home never loses a lesson or a batch half-made on Make. */}
-      <div className="page make-page" hidden={page !== 'make'}>
+      <div className="page make-page" hidden={!makeRoute}>
         <div className="make-head">
           <h2>Make something</h2>
           <nav className="lib-tabs" role="tablist" aria-label="What to make">
@@ -544,7 +545,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         </div>
       </div>
 
-      <div className="page home-page" hidden={page !== 'home'}>
+      <div className="page home-page" hidden={Boolean(makeRoute)}>
         <Home profile={profile} lessons={recent.items} loaded={recent.loaded} onOpen={openItem} />
         <Library
           profile={profile}

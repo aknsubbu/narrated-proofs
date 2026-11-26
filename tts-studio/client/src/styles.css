@@ -654,3 +654,34 @@ del { background: var(--err-soft); color: var(--err); border-radius: 3px; }
   .continue-row { flex-wrap: wrap; }
   .home-poster { width: 96px; }
 }
+
+/* ---------- library cards: calm by default, detail on request ---------- */
+.card-menu { position: relative; }
+.card-menu-pop { min-width: 230px; gap: 2px; }
+.card-menu-pop .facts { margin: 0; padding: 6px 12px 8px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.card-menu-pop .facts div { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
+.card-menu-pop .facts dt { color: var(--muted); }
+.card-menu-pop .facts dd { margin: 0; text-align: right; }
+.card-menu-pop a { padding: 8px 12px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.card-menu-pop a:hover { background: var(--panel-2); }
+.card-menu-pop .danger { color: var(--err); }
+.card-meta { gap: 10px; }
+.tag.more-tags { background: var(--panel-2); color: var(--muted); }
+.topics-toggle { align-self: flex-start; font-weight: 600; }
+
+/* ---------- Home: the lesson to carry on is the first thing ---------- */
+.home { gap: 20px; }
+.home-card.continue { padding: 20px; border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: linear-gradient(180deg, var(--accent-soft), var(--panel) 70%); }
+.continue-row { gap: 22px; }
+.continue-row .home-poster { width: 260px; }
+.continue-row .home-poster .play-icon { width: 48px; height: 48px; font-size: 18px; }
+.continue-body h3 { font-size: 22px; letter-spacing: -0.01em; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.continue-row .btn.primary { padding: 12px 26px; font-size: 16px; }
+.home-page .library { margin-top: 10px; gap: 16px; }
+.home-page .library .lib-tabs { margin-bottom: 2px; }
+.toolbar .watch-chips { margin-top: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .continue-row .home-poster { width: 100%; }
+  .continue-row { flex-direction: column; align-items: stretch; }
+}
+.icon-btn.gear.on { background: var(--accent-soft); color: var(--accent); }

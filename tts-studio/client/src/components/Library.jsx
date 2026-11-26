@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fmtDuration, fmtNumber, fmtUsd, isActive, needsYou, parseSnippet, timeAgo } from '../utils.js';
 import { fractionOf, stateOf, useProgress } from '../progress.js';
 
@@ -58,6 +58,53 @@ function Watched({ p }) {
   );
 }
 
+/** The card's "⋯": the facts and chores a learner rarely needs (cost, voice, size, download, delete). */
+function CardMenu({ g, playable, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => !box.current?.contains(e.target) && setOpen(false);
+    const esc = (e) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  const cost = g.settings?.lesson?.costUsd;
+  const facts = [
+    ['Voice', g.voiceName || g.voiceId],
+    ['Length', `${fmtNumber(g.wordCount)} words`],
+    ...(g.version > 1 ? [['Version', `v${g.version}`]] : []),
+    ...(cost != null ? [['What it cost', fmtUsd(cost)]] : []),
+    ['Made', new Date(g.createdAt).toLocaleString()],
+  ];
+  return (
+    <div className="card-menu" ref={box} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <button className="icon-btn" aria-label={`More about ${g.title}`} aria-haspopup="true" aria-expanded={open} title="More" onClick={() => setOpen((o) => !o)}>
+        ⋯
+      </button>
+      {open && (
+        <div className="menu card-menu-pop" role="group" aria-label={`About ${g.title}`}>
+          <dl className="facts">
+            {facts.map(([k, v]) => (
+              <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+            ))}
+          </dl>
+          {playable && (
+            <a href={`${g.audioUrl || g.videoUrl}?download=1`} download>
+              {g.kind === 'video' ? 'Download MP4' : 'Download MP3'}
+            </a>
+          )}
+          <button className="danger" onClick={() => { setOpen(false); onDelete(g); }}>Delete…</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const WATCH_FILTERS = [
   ['', 'All'],
   ['started', 'In progress'],
@@ -112,21 +159,18 @@ function Card({ g, selected, progress, onOpen, onFavorite, onDelete, onCancel, o
         {g.kind === 'video' && playable && <Watched p={progress} />}
         {g.error && g.status !== 'done' && <p className="card-error">{g.error}</p>}
 
+        {/* What a learner needs: how long it is, and when it was made. The machinery is in the menu. */}
         <div className="card-meta">
-          {g.kind === 'video' && <span className="kind">{g.settings?.lesson ? 'Lesson' : 'Video'}</span>}
-          {g.version > 1 && <span>v{g.version}</span>}
-          <span>{g.voiceName || g.voiceId}</span>
-          <span>{fmtNumber(g.wordCount)} words</span>
           {playable && <span>{fmtDuration(g.durationSec)}</span>}
-          {g.settings?.lesson?.costUsd != null && <span title="What Claude cost to write it">{fmtUsd(g.settings.lesson.costUsd)}</span>}
           <span title={new Date(g.createdAt).toLocaleString()}>{timeAgo(g.createdAt)}</span>
         </div>
 
         {g.tags.length > 0 && (
           <div className="tag-row">
-            {g.tags.map((t) => (
-              <span key={t} className="tag">#{t}</span>
+            {g.tags.slice(0, 2).map((t) => (
+              <span key={t} className="tag">{t}</span>
             ))}
+            {g.tags.length > 2 && <span className="tag more-tags" title={g.tags.slice(2).join(', ')}>+{g.tags.length - 2}</span>}
           </div>
         )}
       </div>
@@ -141,18 +185,6 @@ function Card({ g, selected, progress, onOpen, onFavorite, onDelete, onCancel, o
         >
           {g.favorite ? '★' : '☆'}
         </button>
-        {playable && (
-          <a
-            className="icon-btn"
-            href={`${g.audioUrl || g.videoUrl}?download=1`}
-            download
-            title={g.kind === 'video' ? 'Download MP4' : 'Download MP3'}
-            aria-label={g.kind === 'video' ? 'Download MP4' : 'Download MP3'}
-            onClick={(e) => e.stopPropagation()}
-          >
-            ⬇
-          </a>
-        )}
         {isActive(g) && (
           <button className="icon-btn" title="Cancel" aria-label="Cancel" onClick={stop(() => onCancel(g))}>
             ■
@@ -163,9 +195,7 @@ function Card({ g, selected, progress, onOpen, onFavorite, onDelete, onCancel, o
             ↻
           </button>
         )}
-        <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={stop(() => onDelete(g))}>
-          🗑
-        </button>
+        <CardMenu g={g} playable={playable} onDelete={onDelete} />
       </div>
     </article>
   );
@@ -176,7 +206,8 @@ export default function Library({
   onOpen, onFavorite, onDelete, onCancel, onRetry, onMore, setMode,
 }) {
   const progress = useProgress();
-  const [watch, setWatch] = useState(''); // '', 'started', 'new', 'finished': what the learner has watched
+  const [topicsOpen, setTopicsOpen] = useState(false); // the topic chips stay folded away until asked for
+  const [watch, setWatch] = useState(''); //'', 'started', 'new', 'finished': what the learner has watched
   const lessons = mode !== 'audio';
   const shown = lessons && watch
     ? list.items.filter((g) => g.kind === 'video' && Boolean(g.videoUrl) && stateOf(progress[g.id]) === watch)
@@ -260,6 +291,11 @@ export default function Library({
         </div>
 
         {tags.length > 0 && (
+          <button className="link topics-toggle" aria-expanded={topicsOpen || Boolean(filters.tag)} onClick={() => setTopicsOpen((o) => !o)}>
+            Topics{filters.tag ? `: ${filters.tag}` : ` (${tags.length})`} {topicsOpen || filters.tag ? '▴' : '▾'}
+          </button>
+        )}
+        {tags.length > 0 && (topicsOpen || filters.tag) && (
           <div className="tag-row filter-tags">
             {tags.slice(0, 14).map((t) => (
               <button

@@ -113,6 +113,41 @@ describe('the lesson form', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'success' }));
   });
 
+  it('tells the writer where the learner is starting from, ahead of what they want to understand', async () => {
+    show();
+    fireEvent.change(screen.getByLabelText('Topic'), { target: { value: 'Chain rule' } });
+    fireEvent.change(screen.getByLabelText('What do you want to understand?'), { target: { value: 'why it multiplies' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Brand new to it' }));
+    expect(screen.getByRole('button', { name: 'Brand new to it' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(make());
+    await waitFor(() => expect(onQueued).toHaveBeenCalled());
+    const sent = api.createLesson.mock.calls.at(-1)[0];
+    expect(sent.goal).toBe('I am brand new to this, so start from the very basics. why it multiplies');
+  });
+
+  it('lets a chosen starting point be unchosen, and still sends it when no goal is typed', async () => {
+    show();
+    fireEvent.change(screen.getByLabelText('Topic'), { target: { value: 'Chain rule' } });
+    const chip = screen.getByRole('button', { name: 'Revising' });
+    fireEvent.click(chip);
+    fireEvent.click(chip);
+    expect(chip.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'I know some of it' }));
+    fireEvent.click(make());
+    await waitFor(() => expect(onQueued).toHaveBeenCalled());
+    expect(api.createLesson.mock.calls.at(-1)[0].goal).toMatch(/^I know some of this already/);
+  });
+
+  it('keeps quality, voice and the frame check under Advanced details', () => {
+    show();
+    const advanced = screen.getByText(/Advanced details/).closest('details');
+    expect(advanced.hasAttribute('open')).toBe(false);
+    expect(advanced.contains(screen.getByLabelText('Quality'))).toBe(true);
+    expect(advanced.contains(screen.getByLabelText('Voice'))).toBe(true);
+    expect(advanced.contains(screen.getByLabelText(/look over its own frames/))).toBe(true);
+    expect(advanced.contains(screen.getByLabelText('Length'))).toBe(false); // length is a main step
+  });
+
   it('can stop at the storyboard and ask the writer to look over its frames', async () => {
     show();
     fireEvent.change(screen.getByLabelText('Topic'), { target: { value: 'Chain rule' } });

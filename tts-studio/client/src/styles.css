@@ -685,3 +685,19 @@ del { background: var(--err-soft); color: var(--err); border-radius: 3px; }
   .continue-row { flex-direction: column; align-items: stretch; }
 }
 .icon-btn.gear.on { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- Make a lesson: guided steps ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.steps { gap: 22px; }
+.step { display: flex; flex-direction: column; gap: 12px; }
+.step-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; margin: 0; }
+.step-title b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 13px; flex: none; }
+.step-title small { color: var(--muted); font-weight: 400; }
+.step.advanced { border-top: 1px solid var(--border); padding-top: 14px; }
+.step.advanced > summary { cursor: pointer; list-style: none; }
+.step.advanced > summary::-webkit-details-marker { display: none; }
+.step.advanced[open] > summary { margin-bottom: 12px; }
+.level-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.level-chips .tag { background: var(--panel-2); color: var(--text); padding: 6px 14px; font-size: 14px; }
+.level-chips .tag.on { background: var(--accent); color: var(--accent-ink); }
+.make-summary { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 -4px 24px rgba(20, 20, 40, 0.14); }

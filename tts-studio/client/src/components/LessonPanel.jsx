@@ -115,9 +115,18 @@ function WriterLine({ estimate, providers, choice, setChoice, capUsd }) {
  * `addRef.current` is set to the function that takes dropped files, so files dropped
  * anywhere on the page can come here.
  */
+// Where the learner is starting from. It is said to the writer in plain words, ahead of what they want to understand.
+const LEVELS = [
+  ['new', 'Brand new to it', 'I am brand new to this, so start from the very basics.'],
+  ['some', 'I know some of it', 'I know some of this already, so skip the basics and fill the gaps.'],
+  ['revising', 'Revising', 'I have learned this before and want to revise it, so be quick and focus on what is easy to forget.'],
+];
+const levelSentence = (id) => LEVELS.find(([l]) => l === id)?.[2] || '';
+
 export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQueued, toast, addRef, studio = null }) {
   const [topic, setTopic] = useState('');
   const [goal, setGoal] = useState('');
+  const [level, setLevel] = useState('');
   const [notes, setNotes] = useState('');
   const [textFiles, setTextFiles] = useState([]);
   const [attached, setAttached] = useState([]); // [{ key, name, kind, file, url }]
@@ -214,6 +223,7 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
     attached.forEach((a) => a.url && URL.revokeObjectURL(a.url));
     setTopic('');
     setGoal('');
+    setLevel('');
     setNotes('');
     setTextFiles([]);
     setAttached([]);
@@ -250,7 +260,7 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
         attached.map(async (a) => ({ name: a.name, data: await base64(a.file), ...(a.pages?.trim() ? { pages: a.pages.trim() } : {}), ...(a.asText ? { asText: true } : {}) })),
       );
       await api.createLesson({
-        topic, goal, notes, minutes: prefs.minutes, quality: prefs.quality, voiceId, attachments,
+        topic, goal: [levelSentence(level), goal.trim()].filter(Boolean).join(' ') || goal, notes, minutes: prefs.minutes, quality: prefs.quality, voiceId, attachments,
         review, visualReview: prefs.visualReview,
         ...(chaptered ? { outlineReview: prefs.outlineReview, titleCards: prefs.titleCards } : {}),
         ...(choice ? { writer: JSON.parse(choice) } : {}),
@@ -271,26 +281,42 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
   };
 
   return (
-    <section className="panel lesson" onPaste={onPaste}>
+    <section className="panel lesson steps" onPaste={onPaste}>
       <div>
         <h2 className="panel-title">Explain it to me</h2>
-        <p className="hint">Name a topic and bring your notes: typed, photographed or as PDFs. The writer (Claude, unless you choose another in <a href="#settings/writer">Settings</a>) writes the script and the animations, and you get a narrated video.</p>
+        <p className="hint">Tell us what you want to learn and bring your notes. You get a narrated video that explains it step by step.</p>
       </div>
-      <label className="field">
-        <span>Topic</span>
-        <input className="input" value={topic} maxLength={200} placeholder="Binary search" onChange={(e) => setTopic(e.target.value)} />
-      </label>
-      <label className="field">
-        <span>What do you want to understand?</span>
-        <textarea
-          className="input short"
-          value={goal}
-          maxLength={2000}
-          placeholder="Why it is so much faster than checking every item"
-          onChange={(e) => setGoal(e.target.value)}
-        />
-      </label>
 
+      <div className="step">
+        <h3 className="step-title"><b>1</b> What do you want to learn?</h3>
+        <label className="field">
+          <span>Topic</span>
+          <input className="input" value={topic} maxLength={200} placeholder="Binary search" onChange={(e) => setTopic(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>What do you want to understand?</span>
+          <textarea
+            className="input short"
+            value={goal}
+            maxLength={2000}
+            placeholder="Why it is so much faster than checking every item"
+            onChange={(e) => setGoal(e.target.value)}
+          />
+        </label>
+        <div className="field">
+          <span>Where are you starting from?</span>
+          <div className="level-chips" role="group" aria-label="Where are you starting from?">
+            {LEVELS.map(([id, label]) => (
+              <button key={id} type="button" className={`tag clickable${level === id ? ' on' : ''}`} aria-pressed={level === id} onClick={() => setLevel(level === id ? '' : id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="step">
+        <h3 className="step-title"><b>2</b> Bring your notes <small>optional</small></h3>
       <div className="field">
         <span className="field-row">
           <span>Your notes</span>
@@ -346,35 +372,25 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
           </>
         )}
       </div>
+      </div>
 
-      <div className="row wrap">
-        <label className="field grow">
+      <div className="step">
+        <h3 className="step-title"><b>3</b> How long should it be?</h3>
+        <label className="field">
           <span>Length</span>
           <select className="input" value={prefs.minutes} onChange={(e) => change((p) => ({ ...p, minutes: Number(e.target.value) }))}>
             {LENGTHS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </label>
-        <label className="field grow">
-          <span>Quality</span>
-          <select className="input" value={prefs.quality} onChange={(e) => change((p) => ({ ...p, quality: e.target.value }))}>
-            {QUALITIES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-          </select>
-        </label>
       </div>
-      <label className="field">
-        <span>Voice</span>
-        <select className="input" value={voiceId} disabled={!english.length} onChange={(e) => change((p) => ({ ...p, voiceId: e.target.value }))}>
-          {english.length === 0 && <option value="">{engineReady ? 'No English voices found' : 'Loading voices…'}</option>}
-          {english.map((v) => (
-            <option key={v.voiceId} value={v.voiceId}>{v.name}{v.gender ? ` (${v.gender})` : ''} · {v.lang === 'b' ? 'British' : 'American'}</option>
-          ))}
-        </select>
-      </label>
+
+      <div className="step">
+        <h3 className="step-title"><b>4</b> Do you want to look it over first?</h3>
       <fieldset className="field seg-field">
-        <legend>Before it renders</legend>
-        <div className="seg" role="radiogroup" aria-label="Before it renders">
+        <legend className="sr-only">Look it over first?</legend>
+        <div className="seg" role="radiogroup" aria-label="Look it over first?">
           {[
-            ['render', 'Render right away'],
+            ['render', 'Just make it'],
             ['storyboard', 'Show me the storyboard'],
             ...(chaptered ? [] : [['script', 'Show me the narration first']]),
           ].map(([v, label]) => (
@@ -385,6 +401,7 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
           ))}
         </div>
       </fieldset>
+      <p className="hint">Looking it over lets you fix a mistake before the video is built, which is quicker than changing it afterwards.</p>
       {chaptered && (
         <>
           <label className="check">
@@ -397,16 +414,40 @@ export default function LessonPanel({ voices, defaultVoiceId, engineReady, onQue
           </label>
         </>
       )}
-      <label className="check">
-        <input type="checkbox" checked={!!prefs.visualReview} onChange={(e) => change((p) => ({ ...p, visualReview: e.target.checked }))} />
-        <span>Let the writer look over its own frames <span className="hint">(one more request, a few cents)</span></span>
-      </label>
-      {studio && <WriterLine estimate={estimate} providers={studio.providers || []} choice={choice} setChoice={setChoice} capUsd={studio.values?.costs?.lessonCapUsd} />}
-      <button className="btn primary big" disabled={!ready} onClick={submit}>
-        {busy ? (attached.length ? 'Sending your notes…' : 'Starting…') : 'Make the video'}
-      </button>
-      {tooLong && <p className="hint over-limit">The notes are too long. Trim them to {fmtNumber(MAX_NOTES)} characters, or attach a long document as a PDF.</p>}
-      {tooBig && <p className="hint over-limit">The attached files come to more than {MAX_BYTES / 1048576} MB. Remove some, or use smaller photos.</p>}
+      </div>
+
+      <details className="step advanced">
+        <summary className="step-title"><b>＋</b> Advanced details <small>quality, voice, frame check</small></summary>
+        <label className="field">
+          <span>Quality</span>
+          <select className="input" value={prefs.quality} onChange={(e) => change((p) => ({ ...p, quality: e.target.value }))}>
+            {QUALITIES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>Voice</span>
+          <select className="input" value={voiceId} disabled={!english.length} onChange={(e) => change((p) => ({ ...p, voiceId: e.target.value }))}>
+            {english.length === 0 && <option value="">{engineReady ? 'No English voices found' : 'Loading voices…'}</option>}
+            {english.map((v) => (
+              <option key={v.voiceId} value={v.voiceId}>{v.name}{v.gender ? ` (${v.gender})` : ''} · {v.lang === 'b' ? 'British' : 'American'}</option>
+            ))}
+          </select>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={!!prefs.visualReview} onChange={(e) => change((p) => ({ ...p, visualReview: e.target.checked }))} />
+          <span>Let the writer look over its own frames <span className="hint">(one more request, a few cents)</span></span>
+        </label>
+      </details>
+
+      {/* The summary stays in view as the form scrolls: what it will cost, who writes it, and the button. */}
+      <div className="make-summary">
+        {studio && <WriterLine estimate={estimate} providers={studio.providers || []} choice={choice} setChoice={setChoice} capUsd={studio.values?.costs?.lessonCapUsd} />}
+        <button className="btn primary big" disabled={!ready} onClick={submit}>
+          {busy ? (attached.length ? 'Sending your notes…' : 'Starting…') : 'Make the video'}
+        </button>
+        {tooLong && <p className="hint over-limit">The notes are too long. Trim them to {fmtNumber(MAX_NOTES)} characters, or attach a long document as a PDF.</p>}
+        {tooBig && <p className="hint over-limit">The attached files come to more than {MAX_BYTES / 1048576} MB. Remove some, or use smaller photos.</p>}
+      </div>
     </section>
   );
 }

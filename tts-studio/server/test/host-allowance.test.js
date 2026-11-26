@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
+import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { createStore } from '../db.js';
 import { createLessons } from '../lessons.js';
@@ -30,8 +31,8 @@ before(() => {
   factory = createSettings({ db: store.db, getConfig: () => config, secrets, profiles });
   submitted = [];
   jobSeq = 0;
-  const jobs = { submit: (j) => { if (failNext) { failNext = false; throw new Error('the writer is busy'); } submitted.push(j); jobSeq += 1; return { id: `job-${jobSeq}` }; }, cancel() {}, get: () => ({ status: 'working' }) };
-  lessons = createLessons({ store, runner: { enqueue() {} }, getConfig: () => config, jobs, settings: factory, pollMs: 60_000 });
+  const jobs = { submit: (j) => { if (failNext) { failNext = false; throw new Error('the writer is busy'); } submitted.push(j); jobSeq += 1; return { id: `job-${jobSeq}` }; }, cancel() {}, get: (id) => ({ id, status: 'working', stage: 'Waiting for the lesson writer' }), events: new EventEmitter() };
+  lessons = createLessons({ store, runner: { enqueue() {} }, getConfig: () => config, jobs, settings: factory });
 });
 after(() => {
   lessons.stop();

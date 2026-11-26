@@ -454,3 +454,35 @@ test('jobs: a check job checks the files as they are, asking Claude nothing', as
   const empty = jobs.submit({ project: 'never-written', kind: 'check' });
   assert.match((await settled(empty.id)).error, /no script and scenes to check/);
 });
+
+test('jobs: events announce each start and end, once the job has settled', async (t) => {
+  box.config.authorParallel = 1;
+  t.after(() => (box.config.authorParallel = 2));
+  fs.rmSync(path.join(dir, 'grandchild.pid'), { force: true }); // the one an earlier test left
+  box.answers([{ hang: true }, answer()]);
+  const seen = [];
+  const listen = (job) => seen.push({ id: job.id, status: job.status, held: jobs.get(job.id)?.status });
+  jobs.events.on('change', listen);
+  t.after(() => jobs.events.off('change', listen));
+  const first = jobs.submit({ project: 'ev-1', ...BRIEF });
+  const second = jobs.submit({ project: 'ev-2', ...BRIEF });
+  assert.equal(second.status, 'queued');
+  assert.ok(seen.some((e) => e.id === first.id && e.status === 'working'), 'the start is announced');
+  // A job still waiting its turn is announced when it is cancelled, since nothing else will say so.
+  jobs.cancel(second.id);
+  assert.deepEqual(seen.filter((e) => e.id === second.id).map((e) => e.status), ['cancelled']);
+  await until(() => fs.existsSync(path.join(dir, 'grandchild.pid')), 8000); // Claude has started, so there is something to stop
+  jobs.cancel(first.id);
+  await settled(first.id);
+  const last = seen.filter((e) => e.id === first.id).at(-1);
+  assert.equal(last.status, 'cancelled');
+  assert.equal(last.held, 'cancelled');
+  // A listener that throws must not stop the queue.
+  const bad = () => { throw new Error('boom'); };
+  jobs.events.on('change', bad);
+  t.after(() => jobs.events.off('change', bad));
+  const quiet = t.mock.method(console, 'error', () => {});
+  const third = jobs.submit({ project: 'ev-3', ...BRIEF });
+  assert.equal((await settled(third.id)).status, 'done');
+  assert.ok(quiet.mock.callCount() > 0);
+});

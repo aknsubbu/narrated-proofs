@@ -5,6 +5,7 @@ import { readProject } from './video.js';
 import { VIDEO_QUALITIES } from '../shared/limits.js';
 import { filesIn, hashOf, readProjectText } from './edits.js';
 import { chapterDir } from './versions.js';
+import { WAITING_STAGE } from '../author/jobs.js';
 
 /**
  * Follows lessons through the lesson writer's job queue (author/jobs.js).
@@ -14,8 +15,8 @@ import { chapterDir } from './versions.js';
  * queue: the row sits at "processing" with a stage, and joins the queue as an
  * ordinary video build once its project is ready.
  */
-export function createLessons({ store, runner, getConfig, jobs, versions = null, settings = null, pollMs = 1500 }) {
-  const watching = new Map(); // generation id -> { jobId, timer }
+export function createLessons({ store, runner, getConfig, jobs, versions = null, settings = null }) {
+  const watching = new Map(); // generation id -> { jobId, kind, ... }
   // What the Owner's allowance for the host's sign-in and keys is held back for lessons that are running, so lessons
   // started together cannot each be given all of it. Set in the same step as it is read, released when the lesson stops.
   const reservations = new Map(); // generation id -> { profileId, hostUsd, monthUsd }
@@ -23,6 +24,27 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
   function unwatch(id) {
     watching.delete(id);
     reservations.delete(id);
+    if (!watching.size) jobs.events.off('change', onJobChange); // nothing left to follow, so nothing is listening
+  }
+
+  /**
+   * Follow a lesson's job. One listener serves every lesson, and it is only attached while some lesson is
+   * being followed: a listener for each lesson would pass the emitter's limit of ten with a few lessons at once.
+   */
+  function follow(id, watch) {
+    // Every job starts at the same placeholder stage, which the row already shows or has replaced on purpose (a check
+    // says what it is checking). Anything else the writer has said since, even before we listened, is passed on.
+    watching.set(id, { ...watch, stage: WAITING_STAGE });
+    jobs.events.off('change', onJobChange); // never twice
+    jobs.events.on('change', onJobChange);
+    // The writer may have moved on (or lost the job) between submitting it and our listening, so look once now.
+    settle(id, jobs.get(watch.jobId));
+  }
+
+  function onJobChange(job) {
+    for (const [id, watch] of watching) {
+      if (watch.jobId === job.id) return settle(id, job);
+    }
   }
 
   /** What the attempt that just stopped had spent, from the log it keeps while it works. */
@@ -129,7 +151,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     const row = store.getRaw(id);
     const { project, lesson } = JSON.parse(row.settings_json);
     store.update(id, {
-      status: 'processing', stage: 'Waiting for the lesson writer', error: null,
+      status: 'processing', stage: WAITING_STAGE, error: null,
       progress_done: 0, progress_total: 0, finished_at: null,
     });
     let plan;
@@ -145,21 +167,13 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     } catch (e) {
       return fail(id, e.message);
     }
-    watching.set(id, { jobId: job.id });
-    schedule(id);
+    follow(id, { jobId: job.id });
   }
 
-  function schedule(id) {
+  /** The job changed (or was just looked at): finish the lesson if the job has ended, else show its stage. */
+  function settle(id, job) {
     const watch = watching.get(id);
     if (!watch) return;
-    watch.timer = setTimeout(() => poll(id), pollMs);
-    watch.timer.unref?.();
-  }
-
-  async function poll(id) {
-    const watch = watching.get(id);
-    if (!watch) return;
-    const job = jobs.get(watch.jobId);
     if (!job) return fail(id, 'The lesson writer lost this lesson. Press Retry.');
     if (watch.kind === 'revise') {
       if (job.status === 'done') return finishRevise(id, job.result, watch);
@@ -177,8 +191,10 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       unwatch(id);
       return store.update(id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now() });
     }
-    if (store.getRaw(id)?.stage !== job.stage) store.update(id, { stage: job.stage });
-    schedule(id);
+    if (job.stage !== watch.stage) {
+      watch.stage = job.stage;
+      store.update(id, { stage: job.stage });
+    }
   }
 
   /**
@@ -292,8 +308,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       store.update(id, prior);
       throw Object.assign(new Error(e.message), { status: e.status || 400 });
     }
-    watching.set(id, { jobId: job.id, kind: 'check', prior, then, quality, chapter });
-    schedule(id);
+    follow(id, { jobId: job.id, kind: 'check', prior, then, quality, chapter });
   }
 
   function saveCheck(id, report, summary, chapter = null) {
@@ -351,7 +366,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     const row = store.getRaw(id);
     const settings = JSON.parse(row.settings_json);
     const prior = { status: row.status, stage: row.stage, error: row.error, finished_at: row.finished_at };
-    store.update(id, { status: 'processing', stage: 'Waiting for the lesson writer', error: null, progress_done: 0, progress_total: 0 });
+    store.update(id, { status: 'processing', stage: WAITING_STAGE, error: null, progress_done: 0, progress_total: 0 });
     let job;
     try {
       const plan = await writerFor(settings.lesson, row.profile_id, id);
@@ -361,8 +376,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       store.update(id, prior);
       throw Object.assign(new Error(e.message), { status: e.status || 400 });
     }
-    watching.set(id, { jobId: job.id, kind: 'revise', prior, review, request, scope, chapter });
-    schedule(id);
+    follow(id, { jobId: job.id, kind: 'revise', prior, review, request, scope, chapter });
   }
 
   /** The revision is written and checked: it becomes the next version, then renders or waits at its storyboard. */
@@ -422,7 +436,9 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
   function cancel(id) {
     const watch = watching.get(id);
     if (!watch) return false;
-    clearTimeout(watch.timer);
+    // Let go first: cancelling a waiting job announces it at once, and this function settles the lesson itself.
+    watching.delete(id);
+    if (!watching.size) jobs.events.off('change', onJobChange);
     jobs.cancel(watch.jobId);
     if (watch.kind === 'check') {
       endCheck(id, watch, null); // a cancelled check leaves the lesson as it was
@@ -438,8 +454,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
   }
 
   function stop() {
-    for (const watch of watching.values()) clearTimeout(watch.timer);
     watching.clear();
+    jobs.events.off('change', onJobChange);
   }
 
   /**

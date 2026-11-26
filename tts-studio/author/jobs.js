@@ -1,9 +1,13 @@
 import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { createAuthor, PROJECT_NAME } from './pipeline.js';
 import { normalizeWriter } from './writers/plan.js';
 import { MAX_NOTES } from '../shared/limits.js';
 
 const KEEP_FINISHED = 50;
+
+/** The stage every job starts with, before the writer has said anything of its own. */
+export const WAITING_STAGE = 'Waiting for the lesson writer';
 const KINDS = ['write', 'check', 'revise'];
 
 const invalid = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -23,6 +27,10 @@ const invalid = (message, status = 400) => Object.assign(new Error(message), { s
  *          A bad request throws an error with .status 400, or 409 when the project is busy.
  *   get(id)    -> job, or null     stage, and the result once status is "done"
  *   cancel(id) -> job, or null
+ *   events     emits 'change' with the job (as get gives it) whenever it starts, moves to
+ *              a new stage, or ends as done, error or cancelled. A job that ends is
+ *              announced once the queue has been tidied, so a listener sees it settled.
+ *              Nothing is replayed to a late listener: read get(id) after subscribing.
  *
  * Up to TTS_AUTHOR_PARALLEL jobs run at once, since most of a job is waiting on Claude.
  * Their checks still take turns (see createAuthor): each speaks with Kokoro and runs manim.
@@ -32,8 +40,17 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
   const jobs = new Map(); // id -> { id, kind, project, status, stage, error, result, input, controller }
   const queue = [];
   const active = new Set();
+  const events = new EventEmitter();
 
   const view = (j) => ({ id: j.id, kind: j.kind, project: j.project, status: j.status, stage: j.stage, error: j.error, result: j.result, createdAt: j.createdAt });
+  /** Tell whoever follows the jobs. A listener that throws must not break the queue, so it is only reported. */
+  function notify(job) {
+    try {
+      events.emit('change', view(job));
+    } catch (e) {
+      console.error(`A listener for the lesson writer's jobs failed: ${e.message}`);
+    }
+  }
   const parallel = () => Math.max(1, Number(getConfig().authorParallel) || 1);
 
   function pump() {
@@ -44,8 +61,9 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
     active.add(job);
     job.status = 'working';
     job.controller = new AbortController();
-    const options = { signal: job.controller.signal, onStage: (stage) => (job.stage = stage) };
+    const options = { signal: job.controller.signal, onStage: (stage) => { job.stage = stage; notify(job); } };
     const work = job.kind === 'check' ? author.check(job.input, options) : job.kind === 'revise' ? author.revise(job.input, options) : author.write(job.input, options);
+    notify(job);
     work
       .then(
         (result) => Object.assign(job, { status: 'done', stage: job.kind === 'check' ? 'Checked' : { script: 'Narration ready', outline: 'Outline ready' }[result?.phase] || 'Ready to build', result }),
@@ -57,6 +75,7 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
         const finished = [...jobs.values()].filter((j) => j !== job && !['queued', 'working'].includes(j.status));
         for (const old of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED))) jobs.delete(old.id);
         setImmediate(pump);
+        notify(job);
       });
   }
 
@@ -85,7 +104,7 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
       kind,
       project,
       status: 'queued',
-      stage: 'Waiting for the lesson writer',
+      stage: WAITING_STAGE,
       error: null,
       result: null,
       createdAt: Date.now(),
@@ -119,6 +138,7 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
     if (at !== -1) {
       queue.splice(at, 1);
       Object.assign(job, { status: 'cancelled', stage: 'Cancelled', input: null });
+      notify(job);
     } else if (active.has(job)) {
       job.controller.abort();
     }
@@ -131,5 +151,5 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
     for (const job of active) job.controller?.abort();
   }
 
-  return { submit, get, cancel, stop };
+  return { submit, get, cancel, stop, events };
 }

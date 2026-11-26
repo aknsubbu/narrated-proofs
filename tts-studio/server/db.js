@@ -42,7 +42,14 @@ export function buildFtsQuery(q) {
     .join(' ');
 }
 
-export function toApi(row, { withText = false } = {}) {
+const round3 = (n) => Math.round(n * 1000) / 1000;
+
+/**
+ * A lesson as the API shows it. `costUsd` is what the lesson has cost in all, from its spend rows (null when it has
+ * none): it is put on settings.lesson, where the page and the connector read it, and is never taken from what the
+ * lesson's settings say.
+ */
+export function toApi(row, { withText = false, costUsd = null } = {}) {
   if (!row) return null;
   // A video plays once it is done, and a lesson keeps playing its last built version while a
   // newer one is written, checked or built.
@@ -58,7 +65,7 @@ export function toApi(row, { withText = false } = {}) {
     voiceId: row.voice_id,
     voiceName: row.voice_name,
     modelId: row.model_id,
-    settings: JSON.parse(row.settings_json),
+    settings: withCost(JSON.parse(row.settings_json), costUsd),
     status: row.status,
     progressDone: row.progress_done,
     progressTotal: row.progress_total,
@@ -84,6 +91,13 @@ export function toApi(row, { withText = false } = {}) {
       row.title_snip && row.title_snip.includes(MARK_START) ? row.title_snip : null;
   }
   return out;
+}
+
+function withCost(settings, costUsd) {
+  if (!settings.lesson) return settings;
+  const lesson = { ...settings.lesson };
+  delete lesson.costUsd; // a figure kept on the lesson itself can only be out of date
+  return { ...settings, lesson: costUsd == null ? lesson : { ...lesson, costUsd: round3(costUsd) } };
 }
 
 export function createStore(dataDir) {
@@ -132,9 +146,54 @@ export function createStore(dataDir) {
     events.emit('change', id, ownerStmt.get(id)?.profile_id);
   }
 
+  // Every request the writer paid for, one row each. See migrations.js for what the columns mean.
+  const spendStmts = {
+    add: db.prepare(`INSERT INTO spend (profile_id, generation_id, version_n, created_at, cost_usd, host_usd, settled, step, provider)
+                     VALUES (@profile_id, @generation_id, @version_n, @created_at, @cost_usd, @host_usd, @settled, @step, @provider)`),
+    // The rows a lesson has made that no version has taken yet.
+    stamp: db.prepare('UPDATE spend SET version_n = ? WHERE generation_id = ? AND version_n IS NULL'),
+    settle: db.prepare('UPDATE spend SET settled = 1 WHERE generation_id = ? AND version_n IS NULL AND settled = 0'),
+    open: db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(host_usd), 0) AS host, COUNT(*) AS n FROM spend WHERE generation_id = ? AND version_n IS NULL AND settled = 0'),
+    waiting: db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(host_usd), 0) AS host FROM spend WHERE generation_id = ? AND version_n IS NULL'),
+    byVersion: db.prepare('SELECT version_n AS n, SUM(cost_usd) AS usd, SUM(host_usd) AS host FROM spend WHERE generation_id = ? AND version_n IS NOT NULL GROUP BY version_n'),
+    lesson: db.prepare('SELECT SUM(cost_usd) AS usd FROM spend WHERE generation_id = ?'),
+  };
+  const spend = {
+    /** Record a request's cost. `at` is when it was made; hostUsd is how much of it the host's own sign-in or keys paid. */
+    add: ({ profileId, generationId = null, versionN = null, at = Date.now(), costUsd, hostUsd = 0, settled = false, step = null, provider = null }) => {
+      if (!profileId) throw new Error('Spending is recorded for a profile.');
+      return spendStmts.add.run({
+        profile_id: profileId, generation_id: generationId, version_n: versionN, created_at: at,
+        cost_usd: Number(costUsd) || 0, host_usd: Number(hostUsd) || 0, settled: settled ? 1 : 0, step, provider,
+      });
+    },
+    /**
+     * What a lesson's failed or cancelled attempts have spent since its last finished job: the figure the next job
+     * continues from, so a Retry stays within the same per-lesson cap. A finished job settles it (see settle).
+     */
+    open: (id) => {
+      const { usd, host } = spendStmts.open.get(id);
+      return { usd, host };
+    },
+    /** A job finished: what it and the attempts before it spent is counted in its result, so it is no longer a retry's to continue. */
+    settle: (id) => spendStmts.settle.run(id).changes,
+    /** What no version holds yet: a waiting outline or narration, and failed attempts. The next written version takes it. */
+    waiting: (id) => spendStmts.waiting.get(id),
+    /** What each of a lesson's versions cost, as a Map of version number to dollars. A version with no rows is not in it. */
+    byVersion: (id) => new Map(spendStmts.byVersion.all(id).map((r) => [r.n, r.usd])),
+    /** What a lesson has cost in all, or null when nothing was ever recorded for it. */
+    ofLesson: (id) => spendStmts.lesson.get(id).usd ?? null,
+    /** The same for many lessons at once, as a Map of lesson id to dollars. */
+    ofLessons: (ids) => {
+      if (!ids.length) return new Map();
+      const rows = db.prepare(`SELECT generation_id AS id, SUM(cost_usd) AS usd FROM spend WHERE generation_id IN (${ids.map(() => '?').join(',')}) GROUP BY generation_id`).all(...ids);
+      return new Map(rows.map((r) => [r.id, r.usd]));
+    },
+  };
+
   const versionStmts = {
-    insert: db.prepare(`INSERT INTO versions (generation_id, n, source, note, created_at, cost_usd, host_usd, usage_json, check_ok, warnings, details_json)
-                        VALUES (@generation_id, @n, @source, @note, @created_at, @cost_usd, @host_usd, @usage_json, @check_ok, @warnings, @details_json)`),
+    insert: db.prepare(`INSERT INTO versions (generation_id, n, source, note, created_at, usage_json, check_ok, warnings, details_json)
+                        VALUES (@generation_id, @n, @source, @note, @created_at, @usage_json, @check_ok, @warnings, @details_json)`),
     list: db.prepare('SELECT * FROM versions WHERE generation_id = ? ORDER BY n DESC'),
     get: db.prepare('SELECT * FROM versions WHERE generation_id = ? AND n = ?'),
     next: db.prepare('SELECT COALESCE(MAX(n), 0) + 1 AS n FROM versions WHERE generation_id = ?'),
@@ -143,7 +202,17 @@ export function createStore(dataDir) {
   const VERSION_FIELDS = new Set(['built_at', 'quality', 'duration_sec', 'video_bytes', 'render_kept', 'note']);
   const versions = {
     next: (id) => versionStmts.next.get(id).n,
-    insert: (row) => versionStmts.insert.run({ note: null, cost_usd: null, host_usd: null, usage_json: null, check_ok: null, warnings: null, details_json: null, ...row }),
+    /**
+     * Add a version. With takesSpend it is the version the writer's work was for, and in the same step it takes the lesson's
+     * spend rows that no version has (earlier outline and narration phases and failed attempts included), so each
+     * request is part of exactly one version. An edit or a restore does not take them: it cost nothing, and those
+     * rows belong to the next written version.
+     */
+    insert: (row, { takesSpend = false } = {}) => db.transaction(() => {
+      const out = versionStmts.insert.run({ note: null, usage_json: null, check_ok: null, warnings: null, details_json: null, ...row });
+      if (takesSpend) spendStmts.stamp.run(row.n, row.generation_id);
+      return out;
+    })(),
     list: (id) => versionStmts.list.all(id),
     get: (id, n) => versionStmts.get.get(id, n),
     update(id, n, patch) {
@@ -204,23 +273,8 @@ export function createStore(dataDir) {
     const rows = db
       .prepare(`SELECT ${cols} FROM ${from} ${whereSql} ORDER BY ${orders[key]} LIMIT ? OFFSET ?`)
       .all(...args, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
-    return { total, items: rows.map((r) => toApi(r)) };
-  }
-
-  /**
-   * What a lesson has cost that no version holds yet: an outline or a narration waiting to be approved, and an
-   * attempt that failed. It is spent all the same, so the caps count it, and a deleted lesson leaves it in the ledger.
-   */
-  function unbilled(settingsJson, version) {
-    const l = JSON.parse(settingsJson || '{}').lesson || {};
-    const waiting = version ? 0 : 1; // once a version holds the earlier phases' cost, they are not counted twice
-    const [failedUsd, failedHost] = [Number(l.failedUsd) || 0, Number(l.failedHostUsd) || 0];
-    return {
-      usd: failedUsd + waiting * ((Number(l.scriptCostUsd) || 0) + (Number(l.outlineCostUsd) || 0)),
-      host: failedHost + waiting * ((Number(l.scriptHostUsd) || 0) + (Number(l.outlineHostUsd) || 0)),
-      failedUsd,
-      failedHost,
-    };
+    const costs = spend.ofLessons(rows.map((r) => r.id));
+    return { total, items: rows.map((r) => toApi(r, { costUsd: costs.get(r.id) ?? null })) };
   }
 
   function stats(profileId, { excludeId = null } = {}) {
@@ -238,40 +292,25 @@ export function createStore(dataDir) {
       .prepare(`SELECT COUNT(*) AS n FROM generations WHERE profile_id = ? AND status IN ('queued','processing')`)
       .get(profileId).n;
     const awaiting = db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE profile_id = ? AND status = 'awaiting'`).get(profileId).n;
-    // What writing lessons cost this calendar month, from every version made in it.
+    // What writing lessons cost this calendar month: every request made in it, whatever became of its lesson. A request
+    // is one row, so a figure is counted once however many places it used to be kept (a version, a waiting outline,
+    // a failed attempt, a deleted lesson).
     const month = new Date();
     month.setDate(1);
     month.setHours(0, 0, 0, 0);
-    const claude = db
-      .prepare(
-        `SELECT COALESCE(SUM(v.cost_usd), 0) AS usd, COUNT(*) AS n FROM versions v
-         JOIN generations g ON g.id = v.generation_id WHERE g.profile_id = ? AND v.created_at >= ?`,
-      )
-      .get(profileId, month.getTime());
-    const gone = db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS usd FROM cost_ledger WHERE profile_id = ? AND created_at >= ?').get(profileId, month.getTime()).usd;
-    claude.usd += gone;
-    let pendingUsd = 0;
-    let pendingHost = 0;
-    for (const r of db.prepare("SELECT id, version, settings_json FROM generations WHERE profile_id = ? AND settings_json LIKE '%\"lesson\"%'").all(profileId)) {
-      const u = unbilled(r.settings_json, r.version);
-      // A lesson being retried is held to its own caps with its failed attempts' spending counted by the job itself,
-      // so those alone are left out here: everything else it has spent still counts, once.
-      const mine = r.id === excludeId;
-      pendingUsd += u.usd - (mine ? u.failedUsd : 0);
-      pendingHost += u.host - (mine ? u.failedHost : 0);
-    }
-    claude.usd += pendingUsd;
-    const hostUsd =
-      db.prepare('SELECT COALESCE(SUM(v.host_usd), 0) AS usd FROM versions v JOIN generations g ON g.id = v.generation_id WHERE g.profile_id = ? AND v.created_at >= ?').get(profileId, month.getTime()).usd +
-      db.prepare('SELECT COALESCE(SUM(host_usd), 0) AS usd FROM cost_ledger WHERE profile_id = ? AND created_at >= ?').get(profileId, month.getTime()).usd +
-      pendingHost;
+    // A lesson being retried is held to its own caps with its failed attempts' spending counted by the job itself
+    // (it continues from them), so those rows alone are left out here: everything else it has spent still counts, once.
+    const mine = excludeId ? ' AND NOT (generation_id IS ? AND version_n IS NULL AND settled = 0)' : '';
+    const spent = db
+      .prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(host_usd), 0) AS host FROM spend WHERE profile_id = ? AND created_at >= ?${mine}`)
+      .get(profileId, month.getTime(), ...(excludeId ? [excludeId] : []));
     const voices = db
       .prepare(
         `SELECT voice_id AS voiceId, COALESCE(MAX(voice_name), voice_id) AS name, COUNT(*) AS n
          FROM generations WHERE profile_id = ? GROUP BY voice_id ORDER BY n DESC`,
       )
       .all(profileId);
-    return { ...done, active, awaiting, voices, costThisMonthUsd: Math.round(claude.usd * 100) / 100, hostSpentThisMonthUsd: Math.round(hostUsd * 100) / 100 };
+    return { ...done, active, awaiting, voices, costThisMonthUsd: Math.round(spent.usd * 100) / 100, hostSpentThisMonthUsd: Math.round(spent.host * 100) / 100 };
   }
 
   function tags(profileId) {
@@ -322,12 +361,12 @@ export function createStore(dataDir) {
       return out;
     },
     getRaw: (id) => getStmt.get(id),
-    get: (id, opts) => toApi(getStmt.get(id), opts),
+    get: (id, opts) => toApi(getStmt.get(id), { costUsd: spend.ofLesson(id), ...opts }),
     findByConfig: (profileId, hash) => findByConfigStmt.get(need(profileId), hash),
     /** A lesson only if it is this profile's. Anyone else's is the same as none. */
     getOwned: (id, profileId, opts) => {
       const row = getStmt.get(id);
-      return row && row.profile_id === profileId ? toApi(row, opts) : null;
+      return row && row.profile_id === profileId ? toApi(row, { costUsd: spend.ofLesson(id), ...opts }) : null;
     },
     getRawOwned: (id, profileId) => {
       const row = getStmt.get(id);
@@ -337,17 +376,10 @@ export function createStore(dataDir) {
     rowsOf: (profileId) => db.prepare('SELECT * FROM generations WHERE profile_id = ?').all(need(profileId)),
     update,
     remove: (id) => {
-      // One step: a crash partway must not leave the cost counted in the ledger and still on the versions, or lost from both.
+      // One step: a crash partway must not leave the versions gone and the lesson still there. The lesson's spend rows are
+      // not touched at all: they carry the profile and the date, so a deleted lesson's cost stays in the month's total.
       const removal = db.transaction(() => {
         const owner = ownerStmt.get(id)?.profile_id;
-        if (owner !== undefined) {
-          db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) SELECT ?, created_at, cost_usd, host_usd FROM versions WHERE generation_id = ? AND cost_usd > 0').run(owner, id);
-        }
-        const gone = getStmt.get(id);
-        if (gone) {
-          const u = unbilled(gone.settings_json, gone.version);
-          if (u.usd > 0) db.prepare('INSERT INTO cost_ledger (profile_id, created_at, cost_usd, host_usd) VALUES (?, ?, ?, ?)').run(gone.profile_id, Date.now(), u.usd, u.host);
-        }
         versions.removeAll(id);
         return { owner, n: deleteStmt.run(id).changes };
       });
@@ -357,6 +389,7 @@ export function createStore(dataDir) {
       return n;
     },
     versions,
+    spend,
     events,
     // Across every profile on purpose: a folder is removed only when nobody's lesson still uses it.
     /** Which profiles have a lesson built from each project folder: name -> Set of profile ids. */

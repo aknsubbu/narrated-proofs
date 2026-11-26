@@ -49,6 +49,8 @@ export function editRoutes({ store, runner, lessons, versions, profiles, getConf
   r.get('/generations/:id/versions', (req, res) => {
     const row = findOwned(req);
     if (!row) throw httpError(404, 'Not found');
+    // What each version cost is the sum of the requests it took. An edit or a restore took none: no figure, not $0.
+    const costs = store.spend.byVersion(row.id);
     res.json({
       current: row.version || 0,
       built: row.built_version || 0,
@@ -57,7 +59,7 @@ export function editRoutes({ store, runner, lessons, versions, profiles, getConf
         source: v.source,
         note: v.note,
         createdAt: v.created_at,
-        costUsd: v.cost_usd,
+        costUsd: costs.has(v.n) ? Math.round(costs.get(v.n) * 1000) / 1000 : null,
         usage: v.usage_json ? JSON.parse(v.usage_json) : null,
         checkOk: v.check_ok == null ? null : !!v.check_ok,
         warnings: v.warnings,

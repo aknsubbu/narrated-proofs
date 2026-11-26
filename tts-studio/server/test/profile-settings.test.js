@@ -259,7 +259,8 @@ test("starting a lesson is checked against the profile's own writer, keys and sp
   // The Owner's monthly cap is counted against the Owner's own spend, not the roommate's.
   const mine = store.insert({ id: 'owners-lesson', profile_id: ownerId, kind: 'video', title: 'Owner', source_name: null, text: 'x', text_hash: 'h', config_hash: 'c', char_count: 1, word_count: 1, voice_id: 'af_heart', voice_name: null, model_id: 'm', settings_json: '{}', status: 'done', tags: '', created_at: Date.now() });
   assert.ok(mine);
-  store.versions.insert({ generation_id: 'owners-lesson', n: 1, source: 'written', created_at: Date.now(), cost_usd: 3 });
+  store.spend.add({ profileId: ownerId, generationId: 'owners-lesson', costUsd: 3 });
+  store.versions.insert({ generation_id: 'owners-lesson', n: 1, source: 'written', created_at: Date.now() }, { takesSpend: true });
   assert.equal((await owner.call('PATCH', '/api/settings', { costs: { monthCapUsd: 1 } })).status, 200);
   const capped = await start(owner);
   assert.equal(capped.status, 400);
@@ -275,7 +276,8 @@ test("the Owner limits what a profile spends with the host's Claude sign-in, and
   const room = factory.for(roomId);
   const spend = (usd, n) => {
     if (!store.getRaw('rooms-lesson')) store.insert({ id: 'rooms-lesson', profile_id: roomId, kind: 'video', title: 'Room', source_name: null, text: 'x', text_hash: 'r', config_hash: 'r', char_count: 1, word_count: 1, voice_id: 'af_heart', voice_name: null, model_id: 'm', settings_json: '{}', status: 'done', tags: '', created_at: Date.now() });
-    store.versions.insert({ generation_id: 'rooms-lesson', n, source: 'written', created_at: Date.now(), cost_usd: usd, host_usd: usd });
+    store.spend.add({ profileId: roomId, generationId: 'rooms-lesson', costUsd: usd, hostUsd: usd });
+    store.versions.insert({ generation_id: 'rooms-lesson', n, source: 'written', created_at: Date.now() }, { takesSpend: true });
   };
   await roommate.call('PATCH', '/api/settings', { costs: { monthCapUsd: null } }); // the profile's own cap is a separate thing
   // Allowed Claude Code, with a $1 limit: nothing spent yet, so a lesson may start.

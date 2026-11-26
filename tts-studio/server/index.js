@@ -42,7 +42,7 @@ const server = app.listen(cfg.port, cfg.host, () => {
   // copy's jobs as interrupted, or take its waiting ones.
   const interrupted = store.markInterrupted();
   const waiting = store.resumeQueued();
-  lessons.settleInterrupted(); // what the interrupted lessons had spent stays counted
+  lessons.importLegacySpend(); // what a lesson stopped under the old writer had spent stays counted
   console.log(`\n  Narrated Proofs  http://localhost:${cfg.port}`);
   if (cfg.lan) {
     for (const a of lanAddresses()) console.log(`  On your network  http://${a}:${cfg.port}   (profiles keep libraries apart; trusted networks only)`);

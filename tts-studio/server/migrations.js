@@ -192,6 +192,91 @@ function baseline(db) {
   }
 }
 
+// What an outline, a narration or a failed attempt had cost, kept on a lesson's settings before there was a spend table.
+const LEGACY_LESSON_FIELDS = ['outlineCostUsd', 'outlineHostUsd', 'scriptCostUsd', 'scriptHostUsd', 'failedUsd', 'failedHostUsd', 'costUsd'];
+
+/**
+ * Money used to be kept in four places: each version's cost, the cost_ledger of deleted lessons, figures on a
+ * lesson's settings (a waiting outline or narration, and what a failed attempt spent), and a spent.json in the
+ * project folder. All of it becomes rows of one table, `spend`: one row for each request the writer paid for.
+ *
+ * Every figure is carried over so the month's total and the host's total come out exactly as they did, with one
+ * deliberate difference: what a lesson had spent that no version held yet (the "pending" amounts, which the old
+ * month total counted in whatever month it was asked) is dated to the day the lesson was made, as a version's cost is
+ * dated to the day the version was. A pending amount can no longer drift into a later month.
+ *
+ * spent.json is not read here, because a migration only knows the database. It held nothing the settings did not,
+ * except for a lesson the server stopped under; lessons.importLegacySpend() reads those at the next start.
+ */
+function spendTable(db) {
+  db.exec(`
+    -- One row for each request the writer paid for (a free one is a row of nothing, so a version can say it cost $0).
+    -- version_n is empty until the lesson makes a version, and that version then takes the lesson's empty rows.
+    -- settled is 1 once a finished job has counted the row in its result: the next job's own budget then leaves it out
+    -- (it carries only the failed attempts it continues), while the month's total counts every row once.
+    -- A deleted lesson's rows stay, with its id, so deleting never lowers the month's spend.
+    CREATE TABLE spend (
+      id             INTEGER PRIMARY KEY,
+      profile_id     TEXT NOT NULL,
+      generation_id  TEXT,
+      version_n      INTEGER,
+      created_at     INTEGER NOT NULL,
+      cost_usd       REAL NOT NULL,
+      host_usd       REAL NOT NULL DEFAULT 0,
+      settled        INTEGER NOT NULL DEFAULT 0,
+      step           TEXT,
+      provider       TEXT
+    );
+    CREATE INDEX idx_spend_profile ON spend(profile_id, created_at);
+    CREATE INDEX idx_spend_generation ON spend(generation_id, version_n);
+  `);
+
+  // What each version cost, dated to the version. A version with no figure (an edit, a restore) has no row.
+  db.exec(`
+    INSERT INTO spend (profile_id, generation_id, version_n, created_at, cost_usd, host_usd, settled, step)
+    SELECT g.profile_id, v.generation_id, v.n, v.created_at, COALESCE(v.cost_usd, 0), COALESCE(v.host_usd, 0), 1, 'version'
+    FROM versions v JOIN generations g ON g.id = v.generation_id
+    WHERE v.cost_usd IS NOT NULL OR v.host_usd IS NOT NULL`);
+
+  // What deleted lessons cost: no lesson any more.
+  db.exec(`
+    INSERT INTO spend (profile_id, generation_id, version_n, created_at, cost_usd, host_usd, settled, step)
+    SELECT profile_id, NULL, NULL, created_at, cost_usd, COALESCE(host_usd, 0), 1, 'deleted lesson' FROM cost_ledger`);
+
+  // What a lesson has spent that no version holds yet: a failed or cancelled attempt always, and an outline or a
+  // narration waiting to be approved while the lesson has no version (a version's cost already includes them).
+  const add = db.prepare(`INSERT INTO spend (profile_id, generation_id, version_n, created_at, cost_usd, host_usd, settled, step)
+                          VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`);
+  const save = db.prepare('UPDATE generations SET settings_json = ? WHERE id = ?');
+  const num = (n) => Number(n) || 0;
+  for (const g of db.prepare("SELECT id, profile_id, version, created_at, settings_json FROM generations WHERE settings_json LIKE '%\"lesson\"%'").all()) {
+    let settings;
+    try {
+      settings = JSON.parse(g.settings_json);
+    } catch {
+      continue; // nothing readable to carry over
+    }
+    const l = settings?.lesson;
+    if (!l || typeof l !== 'object') continue;
+    const [failed, failedHost] = [num(l.failedUsd), num(l.failedHostUsd)];
+    if (failed > 0 || failedHost > 0) add.run(g.profile_id, g.id, g.created_at, failed, failedHost, 0, 'failed attempt');
+    if (!g.version) {
+      const waiting = num(l.scriptCostUsd) + num(l.outlineCostUsd);
+      const waitingHost = num(l.scriptHostUsd) + num(l.outlineHostUsd);
+      if (waiting > 0 || waitingHost > 0) add.run(g.profile_id, g.id, g.created_at, waiting, waitingHost, 1, 'waiting phase');
+    }
+    // The figures are rows now. A lesson's cost is read from them, so a copy left on the lesson could only go stale.
+    if (LEGACY_LESSON_FIELDS.some((k) => k in l)) {
+      for (const k of LEGACY_LESSON_FIELDS) delete l[k];
+      save.run(JSON.stringify(settings), g.id);
+    }
+  }
+
+  db.exec('DROP TABLE cost_ledger');
+  db.exec('ALTER TABLE versions DROP COLUMN cost_usd');
+  db.exec('ALTER TABLE versions DROP COLUMN host_usd');
+}
+
 /**
  * The ordered list of changes. Entry n takes the database from version n to n + 1, and
  * PRAGMA user_version is how many entries have run.
@@ -205,6 +290,7 @@ function baseline(db) {
  */
 const STEPS = [
   baseline,
+  spendTable,
   // Append new steps here.
 ];
 

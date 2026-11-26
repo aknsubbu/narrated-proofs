@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { countWords } from './text.js';
-import { readProject } from './video.js';
+import { PROJECT_NAME, readProject } from './video.js';
 import { VIDEO_QUALITIES } from '../shared/limits.js';
 import { filesIn, hashOf, readProjectText } from './edits.js';
 import { chapterDir } from './versions.js';
@@ -47,32 +47,29 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     }
   }
 
-  /** What the attempt that just stopped had spent, from the log it keeps while it works. */
-  function readSpent(settings) {
-    try {
-      const spent = JSON.parse(fs.readFileSync(path.join(getConfig().videoDir, 'projects', settings.project, 'build', 'author', 'spent.json'), 'utf8'));
-      return { failedUsd: Number(spent.usd) || 0, failedHostUsd: Number(spent.hostUsd) || 0 };
-    } catch {
-      return { failedUsd: 0, failedHostUsd: 0 }; // an attempt that did not get as far as asking
-    }
-  }
+  /**
+   * What the writer records as each of this lesson's requests completes: one spend row, as it happens. Nothing waits for
+   * the job to end, so an attempt that fails, is cancelled, or is cut off by a restart has already paid into the month's
+   * total and the Owner's allowance, and a Retry finds what it spent in the table.
+   */
+  const recorder = (id, profileId) => ({ costUsd, hostFunded, step, provider }) => {
+    store.spend.add({ profileId, generationId: id, costUsd, hostUsd: hostFunded ? costUsd : 0, step, provider });
+  };
 
-  /** What a lesson has spent that no version holds yet, kept on it so the caps and the Owner's limit count it. */
-  function noteSpent(id) {
-    const row = store.getRaw(id);
-    if (!row) return {};
-    const settings = JSON.parse(row.settings_json);
-    if (!settings.lesson || !settings.project) return {};
-    settings.lesson = { ...settings.lesson, ...readSpent(settings) };
-    return { settings_json: JSON.stringify(settings) };
-  }
-
-  // A finished attempt has put what it spent into the lesson's own figures: nothing is left over.
-  const SETTLED = { failedUsd: 0, failedHostUsd: 0 };
+  /**
+   * What goes with a job to the writer besides its plan: what this lesson's failed attempts already spent, which the job
+   * continues from (so a Retry stays within the same per-lesson cap), and where to record each request. Spending that a
+   * finished job has already counted (an outline or a narration waiting to be approved) is not carried: each job
+   * has its own cap, as it always did.
+   */
+  const spendFor = (id, profileId) => {
+    const before = store.spend.open(id);
+    return { spentBefore: before.usd, hostBefore: before.host, onSpend: recorder(id, profileId) };
+  };
 
   function fail(id, message) {
     unwatch(id);
-    store.update(id, { status: 'error', error: message, stage: null, finished_at: Date.now(), ...noteSpent(id) });
+    store.update(id, { status: 'error', error: message, stage: null, finished_at: Date.now() });
   }
 
   /**
@@ -111,7 +108,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     // The one thing that waits (a key lookup) comes first. From here to the reservation nothing awaits, so lessons
     // started together are decided one after another and cannot each be given the whole of what is left.
     const allowance = await mine.hostAllowance(writer, 0);
-    // Without this lesson's own failed attempts: the job counts those itself.
+    // Without this lesson's own failed attempts: the job counts those itself (spentBefore, from the same rows), so
+    // leaving them in here as well would hold the retry to them twice.
     const spentNow = store.stats(profileId, { excludeId: lessonId });
     const others = [...reservations].filter(([rid, hold]) => rid !== lessonId && hold.profileId === profileId).map(([, hold]) => hold);
     const held = (field) => others.reduce((n, hold) => n + (hold[field] || 0), 0);
@@ -163,7 +161,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     let job;
     try {
       const phase = phaseOf(lesson);
-      job = jobs.submit({ project, ...brief, ...plan, ...(phase ? { phase } : {}), ...extra });
+      const { onSpend, ...carried } = spendFor(id, row.profile_id);
+      job = jobs.submit({ project, ...brief, ...plan, ...carried, ...(phase ? { phase } : {}), ...extra }, { onSpend });
     } catch (e) {
       return fail(id, e.message);
     }
@@ -205,6 +204,9 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     unwatch(id);
     const row = store.getRaw(id);
     if (!row) return;
+    // The job is over, and its result counts what it and the attempts before it spent. Those rows wait for a version
+    // to take them (or, for an outline or narration, for the approval), and a later job does not continue from them.
+    store.spend.settle(id);
     const settings = JSON.parse(row.settings_json);
     const project = readProject(getConfig().videoDir, settings.project);
     const script = project?.script || result.script || row.text;
@@ -215,9 +217,6 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       settings.lesson = {
         ...settings.lesson,
         phase: 'outline',
-        ...SETTLED,
-        outlineCostUsd: Math.round(((settings.lesson.outlineCostUsd || 0) + (result.costUsd || 0)) * 1000) / 1000,
-        outlineHostUsd: Math.round(((settings.lesson.outlineHostUsd || 0) + (result.usage?.hostCostUsd || 0)) * 1000) / 1000,
         chapters: o.chapters.map(({ id, title, minutes: m }) => ({ id, title, minutes: m })),
       };
       return store.update(id, {
@@ -232,7 +231,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     if (usage) delete usage.requests;
     if (result.phase === 'script') {
       // The narration waits for the person; the scenes are written once it is approved.
-      settings.lesson = { ...settings.lesson, phase: 'script', ...SETTLED, scriptCostUsd: result.costUsd ?? 0, scriptHostUsd: result.usage?.hostCostUsd ?? 0, writtenBy: result.writtenBy || [] };
+      settings.lesson = { ...settings.lesson, phase: 'script', writtenBy: result.writtenBy || [] };
       return store.update(id, {
         ...(settings.lesson.ownTitle ? {} : { title: String(result.title || row.title).slice(0, 120) }),
         text: script,
@@ -243,11 +242,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
         stage: 'Narration ready: have a look',
       });
     }
-    // A narration approved first, or an outline, cost something too.
-    const before = (settings.lesson.scriptCostUsd || 0) + (settings.lesson.outlineCostUsd || 0);
-    const costUsd = result.costUsd == null ? null : Math.round((result.costUsd + before) * 1000) / 1000;
-    // And how much of it the host's own sign-in or keys paid, for the Owner's limit on others.
-    const hostCostUsd = Math.round(((result.usage?.hostCostUsd || 0) + (settings.lesson.scriptHostUsd || 0) + (settings.lesson.outlineHostUsd || 0)) * 1000) / 1000;
+    // What this version cost is whatever the lesson has spent that no version has: this job, the attempts before it,
+    // and a narration or outline approved first. The version takes those rows below, and its cost is read from them.
     Object.assign(settings, {
       scenes: result.scenes,
       lesson: {
@@ -256,10 +252,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
         autofixed: result.autofixed?.length || 0,
         polished: result.polished,
         warnings: result.warnings?.length || 0,
-        costUsd,
         usage,
         phase: null,
-        ...SETTLED,
         ...(result.chapters ? { chapters: result.chapters } : {}),
         ...(result.writtenBy ? { writtenBy: [...(settings.lesson.writtenBy || []).filter((w) => w.step === 'write' && settings.lesson.phase === 'script'), ...result.writtenBy] } : {}),
       },
@@ -279,8 +273,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       versions?.snapshot(id, {
         source: 'written',
         usage: result.usage || null,
-        costUsd,
-        hostCostUsd,
+        takesSpend: true,
         check: { ok: true, warnings: result.warnings?.length || 0 },
       });
     } catch (e) {
@@ -370,7 +363,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     let job;
     try {
       const plan = await writerFor(settings.lesson, row.profile_id, id);
-      job = jobs.submit({ project: settings.project, kind: 'revise', request, scope, attachments, history, ...(chapter ? { chapter } : {}), ...plan });
+      const { onSpend, ...carried } = spendFor(id, row.profile_id);
+      job = jobs.submit({ project: settings.project, kind: 'revise', request, scope, attachments, history, ...(chapter ? { chapter } : {}), ...plan, ...carried }, { onSpend });
     } catch (e) {
       reservations.delete(id); // it never started, so it holds nothing
       store.update(id, prior);
@@ -384,6 +378,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     unwatch(id);
     const row = store.getRaw(id);
     if (!row) return;
+    store.spend.settle(id); // as in finish(): the job's result has counted it
     const settings = JSON.parse(row.settings_json);
     const project = readProject(getConfig().videoDir, settings.project);
     const script = project?.script || row.text;
@@ -391,15 +386,13 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     if (usage) delete usage.requests;
     if (!watch.chapter) settings.scenes = result.scenes || settings.scenes;
     settings.lastRevision = { request: watch.request, summary: result.summary || '', at: Date.now(), ok: true };
-    settings.lesson = { ...settings.lesson, ...SETTLED };
     store.update(id, { text: script, char_count: script.length, word_count: countWords(script), settings_json: JSON.stringify(settings) });
     try {
       versions?.snapshot(id, {
         source: 'revised',
         note: watch.request,
         usage: result.usage || null,
-        costUsd: result.costUsd ?? null,
-        hostCostUsd: result.usage?.hostCostUsd ?? null,
+        takesSpend: true,
         check: { ok: true, warnings: result.warnings?.length || 0 },
         details: {
           request: watch.request,
@@ -428,7 +421,6 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     if (row.version) versions?.resetTo(id, row.version);
     const settings = JSON.parse(row.settings_json);
     settings.lastRevision = { request: watch.request, error: error || 'Cancelled', at: Date.now(), ok: false };
-    if (settings.lesson) settings.lesson = { ...settings.lesson, ...readSpent(settings) };
     store.update(id, { settings_json: JSON.stringify(settings), ...watch.prior });
   }
 
@@ -449,7 +441,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       return true;
     }
     unwatch(id);
-    store.update(id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now(), ...noteSpent(id) });
+    store.update(id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now() });
     return true;
   }
 
@@ -459,17 +451,43 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
   }
 
   /**
-   * Lessons the server was stopped under left what they had spent in their logs. Keep it on them, so a restart
-   * does not give the money back to the caps and the Owner's limit. Safe to run again.
+   * Before the spend table, a running job kept its total in build/author/spent.json in the project, and a lesson's
+   * settings took it from there when the job failed. A lesson the server was stopped under (or killed) never got that far,
+   * so its file can hold more than the migration found on the lesson. Take the difference into the table, once, and
+   * remove the file: the new writer never makes one. A file that holds nothing more is just removed. Safe to run again.
+   * Returns how many lessons had a file.
    */
-  function settleInterrupted() {
-    const rows = store.db.prepare("SELECT id FROM generations WHERE status = 'error' AND error LIKE 'Interrupted by a server restart%'").all();
-    for (const { id } of rows) {
-      const patch = noteSpent(id);
-      if (patch.settings_json) store.update(id, patch);
+  function importLegacySpend() {
+    let found = 0;
+    for (const g of store.db.prepare("SELECT id, profile_id, settings_json FROM generations WHERE settings_json LIKE '%\"lesson\"%'").all()) {
+      let project;
+      try {
+        project = JSON.parse(g.settings_json).project;
+      } catch {
+        continue;
+      }
+      if (!PROJECT_NAME.test(String(project))) continue;
+      const file = path.join(getConfig().videoDir, 'projects', project, 'build', 'author', 'spent.json');
+      let spent;
+      let at;
+      try {
+        spent = JSON.parse(fs.readFileSync(file, 'utf8'));
+        at = fs.statSync(file).mtimeMs; // when its last request finished: the month it belongs to
+      } catch {
+        if (fs.existsSync(file)) fs.rmSync(file, { force: true }); // unreadable: nothing in it to count
+        continue;
+      }
+      found += 1;
+      const known = store.spend.open(g.id); // the migration took the failed attempts' share from the lesson's settings
+      const usd = Math.max(0, (Number(spent.usd) || 0) - known.usd);
+      const host = Math.max(0, (Number(spent.hostUsd) || 0) - known.host);
+      store.db.transaction(() => {
+        if (usd > 0 || host > 0) store.spend.add({ profileId: g.profile_id, generationId: g.id, costUsd: usd, hostUsd: host, at, step: 'before the spend table' });
+        fs.rmSync(file, { force: true });
+      })();
     }
-    return rows.length;
+    return found;
   }
 
-  return { start, checkEdit, revise, cancel, stop, settleInterrupted, isWritten, isActive: (id) => watching.has(id) };
+  return { start, checkEdit, revise, cancel, stop, importLegacySpend, isWritten, isActive: (id) => watching.has(id) };
 }

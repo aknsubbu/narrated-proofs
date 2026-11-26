@@ -8,6 +8,7 @@ import { createStore } from '../db.js';
 import { createApp } from '../app.js';
 import { createProfiles, ProfileError } from '../profiles.js';
 import { createVersions } from '../versions.js';
+import { asOldLibrary } from './old-library.js';
 
 let dir, videoDir, store, app, server, base, profiles;
 const engine = {
@@ -96,7 +97,7 @@ test('a library from before profiles lands under the Owner, and migrating again 
   const first = createStore(path.join(old, 'data'));
   // Pretend this was written by the version before profiles: no owner on its rows.
   first.db.exec("DROP INDEX idx_gen_profile; ALTER TABLE generations DROP COLUMN profile_id;");
-  first.db.pragma('user_version = 0'); // libraries from before versioned migrations all report 0
+  asOldLibrary(first.db);
   first.db.prepare(`INSERT INTO generations (id, title, text, text_hash, config_hash, char_count, word_count, voice_id, model_id, settings_json, status, created_at)
                     VALUES ('old1', 'Old lesson', 'text', 'h', 'c', 4, 1, 'af_zed', 'm', '{}', 'done', 1)`).run();
   first.close();
@@ -491,12 +492,17 @@ test('live updates go only to the profile whose lesson changed', async () => {
 });
 
 test('spending is counted per profile', async () => {
-  store.versions.insert({ generation_id: A_LESSON, n: 2, source: 'revised', created_at: Date.now(), cost_usd: 1.25 });
+  // A paid request, then the version that took it, as a written or revised lesson records them.
+  const paid = (lesson, n, usd) => {
+    store.spend.add({ profileId: aId, generationId: lesson, costUsd: usd });
+    store.versions.insert({ generation_id: lesson, n, source: 'revised', created_at: Date.now() }, { takesSpend: true });
+  };
+  paid(A_LESSON, 2, 1.25);
   assert.equal((await alice.call('GET', '/api/stats')).data.costThisMonthUsd, 1.25);
   assert.equal((await bob.call('GET', '/api/stats')).data.costThisMonthUsd, 0);
   // Deleting a lesson does not give its cost back.
   store.insert(lessonRow(aId, 'costly', 'Costly', {}, 'ledgers'));
-  store.versions.insert({ generation_id: 'costly', n: 1, source: 'written', created_at: Date.now(), cost_usd: 2 });
+  paid('costly', 1, 2);
   assert.equal((await alice.call('GET', '/api/stats')).data.costThisMonthUsd, 3.25);
   store.remove('costly');
   assert.equal((await alice.call('GET', '/api/stats')).data.costThisMonthUsd, 3.25);

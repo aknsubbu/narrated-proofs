@@ -31,7 +31,7 @@ before(() => {
   factory = createSettings({ db: store.db, getConfig: () => config, secrets, profiles });
   submitted = [];
   jobSeq = 0;
-  const jobs = { submit: (j) => { if (failNext) { failNext = false; throw new Error('the writer is busy'); } submitted.push(j); jobSeq += 1; return { id: `job-${jobSeq}` }; }, cancel() {}, get: (id) => ({ id, status: 'working', stage: 'Waiting for the lesson writer' }), events: new EventEmitter() };
+  const jobs = { submit: (j, { onSpend } = {}) => { if (failNext) { failNext = false; throw new Error('the writer is busy'); } submitted.push({ ...j, onSpend }); jobSeq += 1; return { id: `job-${jobSeq}` }; }, cancel() {}, get: (id) => ({ id, status: 'working', stage: 'Waiting for the lesson writer' }), events: new EventEmitter() };
   lessons = createLessons({ store, runner: { enqueue() {} }, getConfig: () => config, jobs, settings: factory });
 });
 after(() => {
@@ -100,25 +100,29 @@ test('a key that cannot be looked up counts as the host’s', async () => {
 });
 
 test('what a lesson spent that no version holds yet is counted: a waiting narration, a failed attempt, and a deleted lesson', () => {
-  const settings = { scriptCostUsd: 0.75, scriptHostUsd: 0.5, outlineCostUsd: 0.25, outlineHostUsd: 0.25 };
-  const month = (id) => store.stats(roomId, { excludeId: id });
+  const delta = (now, then) => Math.round((now - then) * 100) / 100;
   const before = store.stats(roomId);
-  store.insert(row('p1', roomId, settings, { status: 'awaiting' }));
+  store.insert(row('p1', roomId, {}, { status: 'awaiting' }));
+  // An outline and a narration, each written by a job that finished: settled, waiting for a version to take them.
+  store.spend.add({ profileId: roomId, generationId: 'p1', costUsd: 0.25, hostUsd: 0.25, settled: true, step: 'outline' });
+  store.spend.add({ profileId: roomId, generationId: 'p1', costUsd: 0.75, hostUsd: 0.5, settled: true, step: 'write' });
   const waiting = store.stats(roomId);
-  assert.equal(Math.round((waiting.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 1);
-  assert.equal(Math.round((waiting.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.75);
-  assert.equal(month('p1').costThisMonthUsd, waiting.costThisMonthUsd, 'with no failed attempt there is nothing to leave out');
+  assert.equal(delta(waiting.costThisMonthUsd, before.costThisMonthUsd), 1);
+  assert.equal(delta(waiting.hostSpentThisMonthUsd, before.hostSpentThisMonthUsd), 0.75);
+  assert.equal(store.stats(roomId, { excludeId: 'p1' }).costThisMonthUsd, waiting.costThisMonthUsd, 'with no failed attempt there is nothing to leave out');
   // An attempt that failed and was never finished.
-  store.update('p1', { settings_json: JSON.stringify({ project: 'p1', lesson: { ...settings, failedUsd: 2, failedHostUsd: 1 } }) });
-  assert.equal(Math.round((store.stats(roomId).costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 3);
-  // A retry leaves out the failed attempts (the job counts those itself) and nothing else.
+  store.spend.add({ profileId: roomId, generationId: 'p1', costUsd: 2, hostUsd: 1, step: 'fix' });
+  assert.equal(delta(store.stats(roomId).costThisMonthUsd, before.costThisMonthUsd), 3);
+  assert.deepEqual(store.spend.open('p1'), { usd: 2, host: 1 }, 'a retry continues from the failed attempt alone');
+  // A retry leaves out the failed attempt (the job counts it itself) and nothing else.
   const retrying = store.stats(roomId, { excludeId: 'p1' });
-  assert.equal(Math.round((retrying.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 1, 'the waiting narration and outline still count');
-  assert.equal(Math.round((retrying.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.75);
-  // Once a version holds it, the lesson's own figures are not counted again.
-  store.update('p1', { settings_json: JSON.stringify({ project: 'p1', lesson: { ...settings, failedUsd: 0, failedHostUsd: 0 } }), version: 1 });
-  assert.equal(store.stats(roomId).costThisMonthUsd, before.costThisMonthUsd);
-  store.update('p1', { settings_json: JSON.stringify({ project: 'p1', lesson: { ...settings, failedUsd: 2, failedHostUsd: 1 } }), version: 0 });
+  assert.equal(delta(retrying.costThisMonthUsd, before.costThisMonthUsd), 1, 'the waiting narration and outline still count');
+  assert.equal(delta(retrying.hostSpentThisMonthUsd, before.hostSpentThisMonthUsd), 0.75);
+  // A version takes all of it, and it is still counted once.
+  store.versions.insert({ generation_id: 'p1', n: 1, source: 'written', created_at: Date.now() }, { takesSpend: true });
+  assert.equal(delta(store.stats(roomId).costThisMonthUsd, before.costThisMonthUsd), 3);
+  assert.equal(store.spend.byVersion('p1').get(1), 3, 'the version cost what the lesson spent before it');
+  assert.deepEqual(store.spend.open('p1'), { usd: 0, host: 0 }, 'nothing is left for a later job to continue from');
   // Deleting it does not give the money back.
   const held = store.stats(roomId);
   store.remove('p1');
@@ -127,18 +131,22 @@ test('what a lesson spent that no version holds yet is counted: a waiting narrat
   assert.equal(after.hostSpentThisMonthUsd, held.hostSpentThisMonthUsd);
 });
 
-test('a failed or cancelled lesson keeps what the attempt spent, read from its log', async () => {
+test('a failed or cancelled lesson keeps what the attempt spent, as each request was reported', async () => {
   await factory.for(roomId).patch({ 'writer.page': { mode: 'one', all: { provider: 'claude-code', model: '' } } });
   store.insert(row('f1', roomId));
-  const log = path.join(config.videoDir, 'projects', 'f1', 'build', 'author');
-  fs.mkdirSync(log, { recursive: true });
   const before = store.stats(roomId);
   await start('f1');
-  fs.writeFileSync(path.join(log, 'spent.json'), JSON.stringify({ usd: 1.25, hostUsd: 0.75 }));
+  // The writer reports two requests before the person cancels: one paid with the host's sign-in, one not.
+  submitted.at(-1).onSpend({ costUsd: 0.75, hostFunded: true, step: 'write', provider: 'claude-code' });
+  submitted.at(-1).onSpend({ costUsd: 0.5, hostFunded: false, step: 'fix', provider: 'openai' });
   lessons.cancel('f1');
   const after = store.stats(roomId);
   assert.equal(Math.round((after.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 1.25);
   assert.equal(Math.round((after.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.75);
+  // A retry continues from it: the next job is told what the cancelled one spent.
+  await start('f1');
+  assert.deepEqual([submitted.at(-1).spentBefore, submitted.at(-1).hostBefore], [1.25, 0.75]);
+  lessons.cancel('f1');
 });
 
 test('the monthly cap is shared out the same way: lessons started together cannot each spend what is left', async () => {
@@ -172,16 +180,21 @@ test('a revision that cannot start holds nothing back', async () => {
   lessons.cancel('r2');
 });
 
-test('what a lesson had spent when the server stopped is kept, once, however often it starts again', async () => {
+test('what a lesson had spent when the server stopped under the old writer is kept, once, however often it starts again', async () => {
+  // The old writer kept a running total in spent.json; the migration had already taken the lesson's failed attempts
+  // (0.3 here) from its settings, so only the difference is new.
   store.insert(row('i1', roomId, {}, { status: 'error' }));
   store.update('i1', { error: 'Interrupted by a server restart. Press Retry.' });
+  store.spend.add({ profileId: roomId, generationId: 'i1', costUsd: 0.3, hostUsd: 0.2, step: 'failed attempt' });
   const log = path.join(config.videoDir, 'projects', 'i1', 'build', 'author');
   fs.mkdirSync(log, { recursive: true });
   fs.writeFileSync(path.join(log, 'spent.json'), JSON.stringify({ usd: 0.8, hostUsd: 0.6 }));
   const before = store.stats(roomId);
-  assert.ok(lessons.settleInterrupted() >= 1);
-  lessons.settleInterrupted();
+  assert.ok(lessons.importLegacySpend() >= 1);
+  assert.equal(lessons.importLegacySpend(), 0, 'the file is gone once taken');
   const after = store.stats(roomId);
-  assert.equal(Math.round((after.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 0.8);
-  assert.equal(Math.round((after.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.6);
+  assert.equal(Math.round((after.costThisMonthUsd - before.costThisMonthUsd) * 100) / 100, 0.5);
+  assert.equal(Math.round((after.hostSpentThisMonthUsd - before.hostSpentThisMonthUsd) * 100) / 100, 0.4);
+  assert.deepEqual(store.spend.open('i1'), { usd: 0.8, host: 0.6 }, 'a retry continues from the whole of it');
+  assert.equal(fs.existsSync(path.join(log, 'spent.json')), false);
 });

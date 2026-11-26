@@ -73,8 +73,10 @@ export function createVersions({ store, getConfig }) {
   /**
    * Make the next version of lesson `id` from its project's files as they are now.
    * `source` says what made it: written, edited, revised or restored. Returns its number.
+   * `takesSpend` is for a version the writer made: it takes everything the lesson has spent that no version has yet,
+   * which is what the version cost. Its cost is those rows, so it is never given as a figure.
    */
-  function snapshot(id, { source, note = null, usage = null, costUsd = null, hostCostUsd = null, check = null, details = null }) {
+  function snapshot(id, { source, note = null, usage = null, takesSpend = false, check = null, details = null }) {
     const row = store.getRaw(id);
     const root = row && projectRoot(row);
     if (!root || !fs.existsSync(root)) throw new Error('This lesson has no project folder to take a version of.');
@@ -82,6 +84,7 @@ export function createVersions({ store, getConfig }) {
     const dir = versionDir(root, n);
     copySources(root, dir, 'out');
     const createdAt = Date.now();
+    const costUsd = takesSpend ? store.spend.waiting(id).usd : null;
     fs.writeFileSync(
       path.join(dir, 'version.json'),
       `${JSON.stringify({ n, source, note, createdAt: new Date(createdAt).toISOString(), costUsd, usage, ...(details ? { details } : {}) }, null, 2)}\n`,
@@ -92,13 +95,11 @@ export function createVersions({ store, getConfig }) {
       source,
       note,
       created_at: createdAt,
-      cost_usd: costUsd,
-      host_usd: hostCostUsd,
       usage_json: usage ? JSON.stringify(usage) : null,
       check_ok: check ? (check.ok ? 1 : 0) : null,
       warnings: check?.warnings ?? null,
       details_json: details ? JSON.stringify(details) : null,
-    });
+    }, { takesSpend });
     store.update(id, { version: n });
     return n;
   }

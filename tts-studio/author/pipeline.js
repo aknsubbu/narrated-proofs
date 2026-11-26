@@ -301,7 +301,7 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
   };
 
   /** What every job shares: its folder and log, its writers and budget, and the check-and-fix loop. */
-  function session(job, { signal, onStage = () => {} }) {
+  function session(job, { signal, onStage = () => {}, onSpend = null }) {
     const config = getConfig();
     if (!PROJECT_NAME.test(job.project)) throw new AuthorError('That project name is not usable.');
     const root = path.join(config.videoDir, 'projects', job.project);
@@ -314,10 +314,11 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
     const hostCapUsd = job.hostCapUsd != null && Number.isFinite(Number(job.hostCapUsd)) ? Math.max(0, Number(job.hostCapUsd)) : null;
     const needsKeys = Object.values(plan.steps).some((w) => !['claude-code', 'ollama', 'local'].includes(w.kind));
     const keys = secrets || (needsKeys && config.dataDir ? createSecrets({ dataDir: config.dataDir, useKeychain: config.useKeychain }) : null);
-    // What earlier attempts at this job spent: a retry continues, and so does its cap.
-    const spentFile = path.join(log, 'spent.json');
-    const spentBefore = Number(readJson(spentFile)?.usd) || 0;
-    const hostBefore = Number(readJson(spentFile)?.hostUsd) || 0;
+    // What earlier failed attempts at this job spent, as the caller read it from its spend rows: a retry continues, and so
+    // does its cap. Those rows are the caller's and already hold this money, so this job counts them for its cap and its
+    // result and records only its own requests (through onSpend, as each completes).
+    const spentBefore = Math.max(0, Number(job.spentBefore) || 0);
+    const hostBefore = Math.max(0, Number(job.hostBefore) || 0);
     const requests = [];
     const spent = () => spentBefore + requests.reduce((n, r) => n + (Number(r.costUsd) || 0), 0);
     const hostSpent = () => hostBefore + requests.reduce((n, r) => n + (r.hostFunded ? Number(r.costUsd) || 0 : 0), 0);
@@ -350,7 +351,8 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
         const used = { step: name, provider: w.provider, label: w.label, effort: w.effort || null, ...(usage || {}), model: usage?.model || w.model || null, costUsd: Number(usage?.costUsd) || 0, ...extra };
         requests.push(used);
         fs.writeFileSync(path.join(log, `${tag}-usage.json`), JSON.stringify(used, null, 2));
-        fs.writeFileSync(spentFile, JSON.stringify({ usd: spent(), hostUsd: hostSpent() }));
+        // Recorded the moment it is known, so a job that fails, is cancelled or is cut off has still paid for it.
+        onSpend?.({ costUsd: used.costUsd, hostFunded: !!used.hostFunded, step: used.step, provider: used.provider });
       };
       let out;
       try {
@@ -534,7 +536,7 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
     };
     const here = at(root);
 
-    /** Totals, the record in author.json, and the budget cleared for the next job. */
+    /** Totals and the record in author.json. */
     const finish = (extra) => {
       const usage = totalUsage(requests);
       if (spentBefore) usage.earlierAttemptsUsd = Math.round(spentBefore * 1000) / 1000;
@@ -542,7 +544,6 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
       usage.hostCostUsd = Math.round(hostSpent() * 1000) / 1000; // earlier attempts' share too, as costUsd has
       const result = { project: job.project, title: here.current().title, script: here.current().script, autofixed, costUsd: usage.costUsd, usage, writtenBy: writtenBy(requests), ...extra };
       fs.writeFileSync(path.join(root, 'author.json'), `${JSON.stringify({ ...result, script: undefined, finishedAt: new Date().toISOString() }, null, 2)}\n`);
-      fs.rmSync(spentFile, { force: true });
       return result;
     };
 
@@ -587,8 +588,8 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
     return { notes, send };
   }
 
-  async function write(job, { signal, onStage = () => {} } = {}) {
-    const s = session(job, { signal, onStage });
+  async function write(job, { signal, onStage = () => {}, onSpend } = {}) {
+    const s = session(job, { signal, onStage, onSpend });
     const { root, plan } = s;
     // A retry sends only the project name: the brief is the one saved the first time.
     const briefFile = path.join(root, 'brief.json');
@@ -751,8 +752,8 @@ export function createAuthor({ getConfig, ask = askWriter, check = runCheck, aut
    * summaries, and any new notes. The writer answers with what changes; splice.py applies it, and
    * then the check, fixes and polish run as for a new lesson.
    */
-  async function revise(job, { signal, onStage = () => {} } = {}) {
-    const lesson = session(job, { signal, onStage });
+  async function revise(job, { signal, onStage = () => {}, onSpend } = {}) {
+    const lesson = session(job, { signal, onStage, onSpend });
     const { root, plan } = lesson;
     // A lesson in chapters is revised a chapter at a time.
     if (job.chapter !== undefined && !/^\d{2}-[a-z0-9-]{1,48}$/.test(String(job.chapter))) throw new AuthorError('That chapter is not one of this lesson\'s.');

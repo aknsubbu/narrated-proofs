@@ -24,6 +24,8 @@ const invalid = (message, status = 400) => Object.assign(new Error(message), { s
  *          alone, or the scenes for an approved one
  *          writer is the plan for each step (provider, model, effort), as the
  *          dashboard resolves it from Settings; it never carries a key
+ *          capUsd and hostCapUsd are what the job may spend; spentBefore and hostBefore what earlier failed attempts
+ *          at it already spent, which count toward both. submit's second argument, { onSpend }, hears each paid request
  *          A bad request throws an error with .status 400, or 409 when the project is busy.
  *   get(id)    -> job, or null     stage, and the result once status is "done"
  *   cancel(id) -> job, or null
@@ -61,7 +63,7 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
     active.add(job);
     job.status = 'working';
     job.controller = new AbortController();
-    const options = { signal: job.controller.signal, onStage: (stage) => { job.stage = stage; notify(job); } };
+    const options = { signal: job.controller.signal, onStage: (stage) => { job.stage = stage; notify(job); }, onSpend: job.onSpend };
     const work = job.kind === 'check' ? author.check(job.input, options) : job.kind === 'revise' ? author.revise(job.input, options) : author.write(job.input, options);
     notify(job);
     work
@@ -72,6 +74,7 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
       .finally(() => {
         active.delete(job);
         job.input = null; // the notes are on disk in brief.json; no need to keep them here
+        job.onSpend = null;
         const finished = [...jobs.values()].filter((j) => j !== job && !['queued', 'working'].includes(j.status));
         for (const old of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED))) jobs.delete(old.id);
         setImmediate(pump);
@@ -79,7 +82,11 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
       });
   }
 
-  function submit(body = {}) {
+  /**
+   * `onSpend({ costUsd, hostFunded, step, provider })` is called as each paid request completes, whether or not the job
+   * goes on to finish: the caller records the money there. It is not part of the body, which is copied as plain data.
+   */
+  function submit(body = {}, { onSpend = null } = {}) {
     const b = JSON.parse(JSON.stringify(body)); // the job's own copy, as it was when it came over HTTP
     const project = String(b.project || '');
     if (!PROJECT_NAME.test(project)) throw invalid('A lesson needs a project name of letters, digits, - and _.');
@@ -108,11 +115,14 @@ export function createAuthorJobs({ getConfig, author = createAuthor({ getConfig 
       error: null,
       result: null,
       createdAt: Date.now(),
+      onSpend,
       input: {
         project,
         writer: b.writer,
         capUsd: b.capUsd,
         hostCapUsd: b.hostCapUsd,
+        spentBefore: b.spentBefore,
+        hostBefore: b.hostBefore,
         phase: b.phase,
         chapter: b.chapter,
         redo: b.redo ? String(b.redo).slice(0, 2000) : undefined,

@@ -295,6 +295,9 @@ export function createProfiles({ db, dataDir, getMax = () => 5, now = () => Date
     let o = owner();
     if (!o) o = create({ name: 'Owner', owner: true, avatar: { color: COLORS[0], glyph: 'O' } });
     db.prepare("UPDATE generations SET profile_id = ? WHERE profile_id = ''").run(o.id);
+    // What those lessons spent goes with them, as it did when a lesson's owner was looked up each time it was counted.
+    // Spending with no lesson (one deleted before profiles) was never anyone's, and is left so.
+    db.prepare("UPDATE spend SET profile_id = ? WHERE profile_id = '' AND generation_id IS NOT NULL").run(o.id);
     return o;
   }
   ensureOwner();

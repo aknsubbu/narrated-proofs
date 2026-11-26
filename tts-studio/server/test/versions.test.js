@@ -110,16 +110,20 @@ after(async () => {
 test('a version is a snapshot of the files and the storyboard, numbered in order', () => {
   const root = makeProject('snap');
   insertLesson('snap-id', 'snap', 'done');
-  const n = versions.snapshot('snap-id', { source: 'written', costUsd: 0.4, usage: { outputTokens: 10 }, check: { ok: true, warnings: 1 } });
+  // What the writer spent on it, reported request by request, which the written version takes.
+  store.spend.add({ profileId: ownerId(), generationId: 'snap-id', costUsd: 0.4, step: 'write' });
+  const n = versions.snapshot('snap-id', { source: 'written', takesSpend: true, usage: { outputTokens: 10 }, check: { ok: true, warnings: 1 } });
   assert.equal(n, 1);
   assert.equal(store.getRaw('snap-id').version, 1);
   const v = path.join(root, 'versions', '001');
   assert.equal(fs.readFileSync(path.join(v, 'scenes.py'), 'utf8'), 'class Intro: pass\n');
   assert.equal(JSON.parse(fs.readFileSync(path.join(v, 'version.json'), 'utf8')).source, 'written');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(v, 'version.json'), 'utf8')).costUsd, 0.4);
   assert.ok(fs.existsSync(path.join(v, 'storyboard', 'frames', 'Intro-intro--slope.png')));
   assert.equal(versions.snapshot('snap-id', { source: 'edited' }), 2);
   assert.deepEqual(store.versions.list('snap-id').map((x) => [x.n, x.source]), [[2, 'edited'], [1, 'written']]);
   assert.equal(store.stats(ownerId()).costThisMonthUsd, 0.4);
+  assert.deepEqual([...store.spend.byVersion('snap-id')], [[1, 0.4]], 'an edit cost nothing and took nothing');
 });
 
 test('a newer version keeps playing the last one while it builds, and only the last renders are kept', async () => {

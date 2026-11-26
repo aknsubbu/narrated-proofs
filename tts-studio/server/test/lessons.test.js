@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { alive, answer, sandbox, SCRIPT, until } from '../../author/test/fakes.js';
 import { documentCommand, imageCommand, kindOf, safeName } from '../notes.js';
 import { which } from '../which.js';
+import { asOldLibrary } from './old-library.js';
 
 // A 1x1 PNG, and whether this machine has the tools that read photos and documents:
 // sips and textutil on macOS, libvips and pandoc on Linux and in the Docker image.
@@ -165,7 +166,8 @@ test('a lesson can stop at its storyboard, and is version 1 with what it cost', 
   assert.equal(await (await fetch(base + g.videoUrl)).text(), 'MP4medium', 'built at the quality chosen on approval');
   const { versions: list } = (await j('GET', `/api/generations/${id}/versions`)).data;
   assert.deepEqual(list.map((v) => [v.n, v.source, v.costUsd, v.quality]), [[1, 'written', 0.25, 'medium']]);
-  assert.equal(store.versions.get(id, 1).host_usd, 0.25, "Claude Code is the host's own sign-in, so its cost is kept as host-paid");
+  const hostPaid = store.db.prepare('SELECT SUM(host_usd) AS usd FROM spend WHERE generation_id = ? AND version_n = 1').get(id).usd;
+  assert.equal(hostPaid, 0.25, "Claude Code is the host's own sign-in, so its cost is kept as host-paid");
   assert.ok(box.exists(g.settings.project, 'versions/001/storyboard/storyboard.json'));
 });
 
@@ -360,7 +362,7 @@ test('an older library gains the stage column', () => {
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'tts-old-'));
   const first = createStore(old);
   first.db.exec('ALTER TABLE generations DROP COLUMN stage');
-  first.db.pragma('user_version = 0'); // as a library from before versioned migrations
+  asOldLibrary(first.db);
   first.close();
   const again = createStore(old);
   assert.ok(again.db.prepare('PRAGMA table_info(generations)').all().some((c) => c.name === 'stage'));

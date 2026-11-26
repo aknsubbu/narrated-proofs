@@ -208,12 +208,14 @@ test('a fix that leaves the same error makes the next one think harder', async (
 
 test('a request Claude could not answer still counts what it cost', async () => {
   box.answers([{ error: 'Overloaded', cost: 0.4 }]);
-  await assert.rejects(author.write({ project: 'paid-failure', ...BRIEF }), /Claude could not answer: Overloaded/);
+  const heard = [];
+  await assert.rejects(author.write({ project: 'paid-failure', ...BRIEF }, { onSpend: (r) => heard.push(r) }), /Claude could not answer: Overloaded/);
   const used = JSON.parse(box.read('paid-failure', 'build/author/01-write-usage.json'));
   assert.equal(used.failed, true);
   assert.equal(used.costUsd, 0.4);
   assert.equal(used.hostFunded, true, 'paid with the sign-in of the computer');
-  assert.deepEqual(JSON.parse(box.read('paid-failure', 'build/author/spent.json')), { usd: 0.4, hostUsd: 0.4 }, 'a retry continues from it');
+  // Heard as it happened, though the job failed: the caller records it, and a retry continues from it.
+  assert.deepEqual(heard.map((r) => [r.costUsd, r.hostFunded, r.step]), [[0.4, true, 'write']]);
 });
 
 test('a draft with far less narration than planned is not kept', async () => {

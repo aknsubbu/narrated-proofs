@@ -300,15 +300,12 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
   const addFilesRef = useRef(addFiles);
   addFilesRef.current = addFiles;
   const lessonAddRef = useRef(null); // set by LessonPanel
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-
-  // The Make page's two tabs are the two modes, so a dropped file lands in the one on screen.
-  const makeKind = makeRoute?.kind;
-  useEffect(() => {
-    if (makeKind) setMode(makeKind === 'audio' ? 'audio' : 'lessons');
-  }, [makeKind, setMode]);
   const page = makeRoute ? 'make' : 'home';
+  // What a dropped file is for, and which form shows: the Make page's tab when it is open, otherwise
+  // the library's. The two are kept apart, so making audio does not flip Home to the audio library.
+  const making = makeRoute ? (makeRoute.kind === 'audio' ? 'audio' : 'lessons') : mode;
+  const modeRef = useRef(making);
+  modeRef.current = making;
 
   // Once something is queued, go home: that is where "being made now" is shown.
   const goHome = () => {
@@ -462,7 +459,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">
           <div className="drop-overlay-card">
-            {mode === 'lessons' ? (
+            {making === 'lessons' ? (
               <>
                 <strong>Drop to add to your lesson notes</strong>
                 <span>Photos, screenshots, PDFs, Word and text files</span>
@@ -497,7 +494,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         </div>
       )}
 
-      {mode === 'lessons' && studio?.writerProblem && (
+      {making === 'lessons' && studio?.writerProblem && (
         <div className="banner notice" role="status">
           <strong>Choose who writes your lessons.</strong> {studio.writerProblem}{' '}
           <a href="#settings/writer">Open Lesson writer</a>. A model on this Mac, such as Ollama, is free.
@@ -509,12 +506,12 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
         <div className="make-head">
           <h2>Make something</h2>
           <nav className="lib-tabs" role="tablist" aria-label="What to make">
-            <a role="tab" href="#make" aria-selected={mode !== 'audio'} className={mode !== 'audio' ? 'on' : ''}>Video lesson</a>
-            <a role="tab" href="#make/audio" aria-selected={mode === 'audio'} className={mode === 'audio' ? 'on' : ''}>Audio from text</a>
+            <a role="tab" href="#make" aria-selected={making !== 'audio'} className={making !== 'audio' ? 'on' : ''}>Video lesson</a>
+            <a role="tab" href="#make/audio" aria-selected={making === 'audio'} className={making === 'audio' ? 'on' : ''}>Audio from text</a>
           </nav>
         </div>
         <div className="make-body">
-          <aside className="composer" hidden={mode !== 'lessons'}>
+          <aside className="composer" hidden={making !== 'lessons'}>
             <LessonPanel
               voices={voices}
               defaultVoiceId={settings.voiceId}
@@ -527,7 +524,7 @@ export default function App({ profile = null, onProfileChanged = () => {} }) {
             <VideoPanel toast={toast} onQueued={queued} />
           </aside>
           <Composer
-            hidden={mode !== 'audio'}
+            hidden={making !== 'audio'}
             health={health}
             voices={voices}
             languages={languages}

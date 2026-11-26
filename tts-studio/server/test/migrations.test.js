@@ -288,3 +288,42 @@ test('a library made by a newer app is refused, not changed', () => {
   assert.equal(peek.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'generations'").get().n, 0);
   peek.close();
 });
+
+test('a library is backed up before a migration changes it, and a new or current one is not', () => {
+  const backups = (dir) => (fs.existsSync(path.join(dir, 'backups')) ? fs.readdirSync(path.join(dir, 'backups')) : []);
+  // New: nothing to lose.
+  const fresh = folder();
+  createStore(fresh).close();
+  assert.deepEqual(backups(fresh), []);
+  // At the latest version: nothing changes, so nothing is copied.
+  createStore(fresh).close();
+  assert.deepEqual(backups(fresh), []);
+
+  // An old library with lessons in it: copied as it was, before any step ran.
+  const old = folder();
+  makeOldestLibrary(old);
+  const store = createStore(old);
+  assert.equal(version(store.db), LATEST_VERSION);
+  store.close();
+  const [copy] = backups(old);
+  assert.match(copy, /^studio-v0-\d{8}-\d{6}\.db$/);
+  const saved = new Database(path.join(old, 'backups', copy), { readonly: true });
+  assert.equal(version(saved), 0, 'the copy is the library as it was');
+  assert.deepEqual(saved.prepare('SELECT id FROM generations ORDER BY seq').all().map((r) => r.id), ['old-1', 'old-2']);
+  assert.equal(columns(saved, 'generations').includes('kind'), false, 'from before the baseline step');
+  assert.equal(saved.prepare('SELECT cost_usd FROM cost_ledger').get().cost_usd, 1.25, 'with the money in its old places');
+  saved.close();
+});
+
+test('a library that cannot be backed up is not migrated', () => {
+  const dir = folder();
+  const raw = new Database(file(dir));
+  raw.exec('CREATE TABLE generations (id TEXT PRIMARY KEY)');
+  raw.close();
+  fs.writeFileSync(path.join(dir, 'backups'), 'a file where the folder should be');
+  const db = new Database(file(dir));
+  assert.throws(() => migrate(db), /Could not back up the library/);
+  assert.equal(version(db), 0, 'nothing ran');
+  assert.deepEqual(columns(db, 'generations'), ['id']);
+  db.close();
+});

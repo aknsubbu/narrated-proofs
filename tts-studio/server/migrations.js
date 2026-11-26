@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 /**
  * How studio.db gets its shape. The library, the profiles and the settings all share this one
  * file, and SQLite keeps a single version number per file (PRAGMA user_version), so every change
@@ -299,6 +302,31 @@ export const LATEST_VERSION = STEPS.length;
 const versionOf = (db) => db.pragma('user_version', { simple: true });
 
 /** Bring the database to the latest version. Safe to call on every start, and from two processes at once. */
+/**
+ * Copy a library that holds anything into data/backups before a migration changes it, so a step that turns out
+ * wrong (they drop tables and columns once their contents are carried over) can be undone by putting the copy
+ * back. A new, empty library has nothing to lose and gets none. VACUUM INTO writes a consistent copy, including
+ * what is still in the write-ahead log. If the copy cannot be made the migration does not run: the app stops with
+ * the reason rather than change a library it could not save first. Returns the copy's path, or null.
+ */
+export function backUp(db, version, now = new Date()) {
+  const file = db.name;
+  if (!file || file === ':memory:' || db.memory) return null;
+  const tables = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get().n;
+  if (!tables) return null;
+  const dir = path.join(path.dirname(file), 'backups');
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+  const copy = path.join(dir, `${path.basename(file, '.db')}-v${version}-${stamp}.db`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(copy)) db.prepare('VACUUM INTO ?').run(copy);
+  } catch (e) {
+    throw new Error(`Could not back up the library to ${copy} before updating it (${e.message}). Free some disk space, or check the data folder can be written, and start again.`);
+  }
+  console.log(`  Library backed up to ${copy} before updating it (database version ${version} to ${LATEST_VERSION}).`);
+  return copy;
+}
+
 export function migrate(db) {
   const start = versionOf(db);
   if (start === LATEST_VERSION) return;
@@ -306,6 +334,7 @@ export function migrate(db) {
   if (start > LATEST_VERSION) {
     throw new Error(`This library was made by a newer version of the app (database version ${start}, this app knows ${LATEST_VERSION}). Update the app to open it.`);
   }
+  backUp(db, start);
   for (let n = start; n < STEPS.length; n += 1) {
     // immediate() takes the write lock first, so a second process starting at the same moment waits,
     // then sees the step done and skips it.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import Workspace, { whoWrote } from './Workspace.jsx';
 import { api } from '../api.js';
 
@@ -47,6 +47,59 @@ describe('the lesson workspace', () => {
     expect(screen.queryByRole('button', { name: 'Approve and render' })).toBeNull();
   });
 
+  describe('watching a finished lesson', () => {
+    const DONE = { status: 'done', stage: null, version: 2, builtVersion: 2, videoUrl: '/api/generations/g1/video', durationSec: 120 };
+
+    it('puts asking for a different explanation directly under the video', async () => {
+      show(DONE);
+      const ask = await screen.findByRole('region', { name: 'Ask for a different explanation' });
+      const video = document.querySelector('.yt-main video');
+      expect(video).toBeTruthy();
+      // The ask bar follows the player and comes before the title and details.
+      expect(video.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(ask.compareDocumentPosition(document.querySelector('.yt-info')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getAllByRole('region', { name: /Ask for a/ })).toHaveLength(1);
+    });
+
+    it('keeps the rail beside the video: the transcript for a lesson without chapters', async () => {
+      show(DONE);
+      await screen.findByRole('region', { name: 'Ask for a different explanation' });
+      expect(screen.getByRole('tablist', { name: 'Beside the video' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Transcript' })).toBeTruthy();
+      expect(screen.queryByRole('tab', { name: 'Chapters' })).toBeNull();
+    });
+
+    it('has a Fine-tune button that opens the editor', async () => {
+      show(DONE);
+      const link = await screen.findByRole('link', { name: 'Fine-tune' });
+      expect(link.getAttribute('href')).toBe('#lesson/g1/edit');
+    });
+
+    it('keeps Download and Delete in one More menu, asking before anything is deleted', async () => {
+      show(DONE);
+      await screen.findByRole('region', { name: 'Ask for a different explanation' });
+      expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull(); // not loose on the page
+      const menu = screen.getByText('⋯ More').closest('details');
+      expect(within(menu).getByRole('link', { name: 'Download video (MP4)' })).toBeTruthy();
+      fireEvent.click(within(menu).getByRole('button', { name: 'Delete this lesson…' }));
+      expect(props.onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' })); // App.removeItem asks to confirm
+    });
+
+    it('calls the details “About this lesson” and keeps what it cost in there', async () => {
+      show(DONE);
+      const about = (await screen.findByText(/About this lesson/)).closest('details');
+      expect(about.hasAttribute('open')).toBe(false);
+      expect(within(about).getByText('What it took')).toBeTruthy();
+    });
+  });
+
+  it('keeps the ask-for-a-different-explanation bar for when there is a video to ask about', async () => {
+    show(); // waiting at its storyboard: nothing to watch yet, so the change bar stays at the foot of the page
+    await screen.findByRole('button', { name: 'Approve and render' });
+    expect(screen.queryByRole('region', { name: 'Ask for a different explanation' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Ask for a change' })).toBeTruthy();
+  });
+
   it('says who wrote each step', () => {
     expect(whoWrote([
       { step: 'write', provider: 'claude-code', label: 'Claude Code', model: 'claude-opus-5-5' },
@@ -60,11 +113,11 @@ describe('the lesson workspace', () => {
     show({}, 'notes');
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.map((t) => [t.textContent, t.getAttribute('href')])).toEqual([
-      ['Watch', '#lesson/g1/watch'], ['Storyboard', '#lesson/g1/storyboard'], ['Edit', '#lesson/g1/edit'], ['History', '#lesson/g1/history'], ['Notes', '#lesson/g1/notes'],
+      ['Watch', '#lesson/g1/watch'], ['Storyboard', '#lesson/g1/storyboard'], ['Fine-tune', '#lesson/g1/edit'], ['Versions', '#lesson/g1/history'], ['Notes', '#lesson/g1/notes'],
     ]);
     expect(screen.getByRole('tab', { name: 'Notes' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('Gradient')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: '← Home' }));
     expect(props.onClose).toHaveBeenCalled();
   });
 });

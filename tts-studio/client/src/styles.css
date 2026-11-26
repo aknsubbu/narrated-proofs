@@ -708,3 +708,28 @@ del { background: var(--err-soft); color: var(--err); border-radius: 3px; }
 .more-providers > summary { cursor: pointer; font-weight: 600; color: var(--accent); margin: 4px 0 12px; }
 .more-providers > summary small { color: var(--muted); font-weight: 400; }
 .more-providers[open] > summary { margin-bottom: 12px; }
+
+/* ---------- Watch: ask under the video, a rail beside it ---------- */
+.revision-bar.asking { border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--panel); padding: 14px 16px; position: static; box-shadow: var(--shadow); }
+.ask-head { display: flex; flex-direction: column; gap: 6px; }
+.ask-head h3 { font-size: 16px; margin: 0; }
+.quick-asks { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 4px; }
+.quick-asks .tag { background: var(--accent-soft); padding: 6px 12px; font-size: 13.5px; }
+.quick-asks .tag:hover { background: var(--accent); color: var(--accent-ink); }
+
+.rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.rail-tabs { display: flex; gap: 4px; background: var(--panel-2); border-radius: 10px; padding: 3px; align-self: flex-start; }
+.rail-tabs button { border: none; background: transparent; padding: 5px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 14px; }
+.rail-tabs button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.rail-chapters { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rail-chapters button { width: 100%; display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; }
+.rail-chapters button:hover { background: var(--panel-2); }
+.rail-chapters button.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.rail-chapters .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--panel-2); font-size: 12px; font-weight: 700; }
+.rail-chapters .on .n { background: var(--accent); color: var(--accent-ink); }
+.rail-chapters .when { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.rail-notation { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rail-notation li { display: flex; gap: 12px; align-items: baseline; }
+.rail-notation code { min-width: 56px; }
+.more-menu .menu-list .menu-danger { text-align: left; background: none; border: none; border-radius: 7px; padding: 7px 10px; color: var(--err); font-size: 14px; }
+.more-menu .menu-list .menu-danger:hover { background: var(--panel-2); }

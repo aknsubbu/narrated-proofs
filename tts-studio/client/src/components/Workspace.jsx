@@ -4,7 +4,7 @@ import { fmtBytes, fmtDate, fmtDuration, fmtNumber, fmtUsd, isActive, needsYou, 
 import { Progress, StatusBadge } from './Library.jsx';
 import { NoteFiles, VideoPlayer } from './Drawer.jsx';
 import Storyboard from './Storyboard.jsx';
-import Transcript from './Transcript.jsx';
+import Rail from './Rail.jsx';
 import RevisionBar from './RevisionBar.jsx';
 
 // The editor and the diffs are most of the page's code, so they load when their tab is opened.
@@ -12,7 +12,7 @@ const EditTab = lazy(() => import('./EditTab.jsx'));
 const History = lazy(() => import('./History.jsx'));
 const Outline = lazy(() => import('./Outline.jsx'));
 
-const TAB_LABELS = { watch: 'Watch', outline: 'Outline', storyboard: 'Storyboard', edit: 'Edit', history: 'History', notes: 'Notes' };
+const TAB_LABELS = { watch: 'Watch', outline: 'Outline', storyboard: 'Storyboard', edit: 'Fine-tune', history: 'Versions', notes: 'Notes' };
 export const QUALITIES = [
   ['default', '1080p'],
   ['medium', '720p'],
@@ -188,19 +188,23 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
       {g.builtVersion && g.builtVersion !== g.version ? ` · playing v${g.builtVersion}` : ''}
     </span>
   );
+  // Downloads and Delete share one "More" menu; Fine-tune is the way into the script and scenes.
   const fileActions = g && (
     <>
-      <details className="menu">
-        <summary className="btn">Download</summary>
+      {lesson && g.version > 0 && !outlining && tab !== 'edit' && (
+        <a className="btn" href={tabLink('edit')} title="Edit the script and the scenes, and compare versions">Fine-tune</a>
+      )}
+      <details className="menu more-menu">
+        <summary className="btn" aria-label="More: download or delete">⋯ More</summary>
         <div className="menu-list">
-          {g.videoUrl && <a href={`${g.videoUrl}?download=1`} download>Video (MP4)</a>}
+          {g.videoUrl && <a href={`${g.videoUrl}?download=1`} download>Download video (MP4)</a>}
           {g.videoUrl && <a href={`/api/generations/${g.id}/captions.srt?download=1`} download>Captions (SRT)</a>}
           {g.videoUrl && <a href={`/api/generations/${g.id}/captions.vtt?download=1`} download>Captions (VTT)</a>}
           {g.videoUrl && lesson?.chaptered && <a href={`/api/generations/${g.id}/chapters.vtt`} download={`${s.project}.chapters.vtt`}>Chapters (VTT)</a>}
           <a href={`/api/generations/${g.id}/script?download=1`} download>Narration (text)</a>
+          <button type="button" className="menu-danger" onClick={() => onDelete(g)}>Delete this lesson…</button>
         </div>
       </details>
-      <button className="btn danger" onClick={() => onDelete(g)}>Delete</button>
     </>
   );
 
@@ -208,7 +212,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
     <div className="workspace" role="dialog" aria-modal="true" aria-label="Lesson">
       {!g ? (
         <div className="ws-loading">
-          <button className="link" onClick={onClose}>← Library</button>
+          <button className="link" onClick={onClose}>← Home</button>
           <p className="hint">{loadError || 'Loading…'}</p>
         </div>
       ) : (
@@ -216,7 +220,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
           <div className="ws-top">
           <header className="ws-head">
             <div className="ws-row">
-            <button className="link ws-back" onClick={onClose}>← Library</button>
+            <button className="link ws-back" onClick={onClose}>← Home</button>
             {!watching && titleInput}
             {watching && <span className="grow" />}
             {!watching && versionChip}
@@ -269,6 +273,9 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
                       {narration && <pre className="script narration-review">{g.text}</pre>}
                     </div>
                   )}
+                  {canRevise && g.videoUrl && (
+                    <RevisionBar variant="ask" key={g.id} g={g} chapters={chapters} chapter={chapter} scope={scope} setScope={setScope} videoRef={videoRef} toast={toast} inputRef={askRef} />
+                  )}
                   <div className="yt-info">
                     {titleInput}
                     <div className="yt-meta">
@@ -293,8 +300,8 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
                   )}
                   <details className="yt-desc">
                     <summary>
-                      <span>{lesson?.topic || 'Details'}</span>
-                      <span className="hint">{lesson ? `${fmtUsd(lesson.costUsd)} · ` : ''}Show more</span>
+                      <span>About this lesson{lesson?.topic ? `: ${lesson.topic}` : ''}</span>
+                      <span className="hint">Show more</span>
                     </summary>
                     <Effort lesson={lesson} />
                     <section className="block">
@@ -311,7 +318,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
                 </div>
                 {g.videoUrl && (
                   <aside className="yt-side">
-                    <Transcript id={g.id} builtVersion={g.builtVersion} videoRef={videoRef} />
+                    <Rail g={g} videoRef={videoRef} />
                   </aside>
                 )}
               </div>
@@ -326,7 +333,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
               {tab === 'edit' && !outlining && <EditTab key={chapter || 'lesson'} g={g} chapter={chapter} voices={voices} toast={toast} dirtyRef={editDirty} />}
               {tab === 'history' && !outlining && <History g={g} chapter={chapter} toast={toast} />}
             </Suspense>
-            {canRevise && <RevisionBar key={g.id} g={g} chapters={chapters} chapter={chapter} scope={scope} setScope={setScope} videoRef={tab === 'watch' ? videoRef : null} toast={toast} inputRef={askRef} />}
+            {canRevise && !(tab === 'watch' && g.videoUrl) && <RevisionBar key={g.id} g={g} chapters={chapters} chapter={chapter} scope={scope} setScope={setScope} videoRef={tab === 'watch' ? videoRef : null} toast={toast} inputRef={askRef} />}
             {tab === 'notes' && (
               <div className="ws-notes">
                 {lesson && (

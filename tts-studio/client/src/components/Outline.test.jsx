@@ -101,7 +101,7 @@ describe('a lesson in chapters', () => {
     api.get.mockResolvedValue({ ...LONG, status: 'awaiting', version: 0, builtVersion: 0, videoUrl: null, settings: { ...LONG.settings, lesson: { ...LONG.settings.lesson, phase: 'outline' } } });
     render(<Workspace id="g1" tab="watch" {...props()} />);
     const tabs = await screen.findAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Watch', 'Outline', 'Storyboard', 'Edit', 'History', 'Notes']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Watch', 'Outline', 'Storyboard', 'Fine-tune', 'Versions', 'Notes']);
     expect(screen.getByText(/The outline is ready: 2 chapters/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Review the outline' }).getAttribute('href')).toBe('#lesson/g1/outline');
   });

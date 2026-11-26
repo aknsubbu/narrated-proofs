@@ -10,9 +10,9 @@ vi.mock('../api.js', () => ({ api: { revise: vi.fn(), get: vi.fn(), versions: vi
 
 const G = { id: 'g1', version: 2, status: 'done', text: '[intro]\nHello.\n\n[chain]\nTwo links.', settings: { scenes: ['Intro', 'Chain'], lesson: { review: 'render' } } };
 
-function Harness({ g = G, videoRef = null }) {
+function Harness({ g = G, videoRef = null, variant }) {
   const [scope, setScope] = useState({ kind: 'lesson' });
-  return <RevisionBar g={g} scope={scope} setScope={setScope} videoRef={videoRef} toast={toast} />;
+  return <RevisionBar g={g} scope={scope} setScope={setScope} videoRef={videoRef} toast={toast} variant={variant} />;
 }
 let toast;
 beforeEach(() => {
@@ -43,6 +43,40 @@ describe('asking for a change', () => {
     fireEvent.change(screen.getByLabelText('What to change'), { target: { value: 'Clearer' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(api.revise).toHaveBeenCalledWith('g1', expect.objectContaining({ scope: { kind: 'time', at: 41.3 } })));
+  });
+
+  it('under the video, asks for a different explanation, with requests one tap away', async () => {
+    render(<Harness variant="ask" />);
+    expect(screen.getByRole('region', { name: 'Ask for a different explanation' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Go slower here' }));
+    expect(screen.getByLabelText('What to change').value).toBe('Go slower here');
+    fireEvent.change(screen.getByLabelText('What to change'), { target: { value: 'Go slower here, I lost the second line' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show an example' })); // does not overwrite what was typed
+    expect(screen.getByLabelText('What to change').value).toBe('Go slower here, I lost the second line');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.revise).toHaveBeenCalledWith('g1', expect.objectContaining({ request: 'Go slower here, I lost the second line', scope: { kind: 'lesson' } })));
+  });
+
+  it('under the video, pausing asks about that moment without a click, and playing lets go of it', async () => {
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'currentTime', { value: 41.3, writable: true });
+    render(<Harness variant="ask" videoRef={{ current: video }} />);
+    act(() => video.dispatchEvent(new Event('pause')));
+    expect(await screen.findByText(/Paused at 41s/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('What to change'), { target: { value: 'Why this step?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.revise).toHaveBeenCalledWith('g1', expect.objectContaining({ scope: { kind: 'time', at: 41.3 } })));
+    act(() => video.dispatchEvent(new Event('play')));
+    await waitFor(() => expect(screen.queryByText(/Paused at 41s/)).toBeNull());
+  });
+
+  it('keeps a scene the learner chose when the video is paused', async () => {
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'currentTime', { value: 12, writable: true });
+    render(<Harness variant="ask" videoRef={{ current: video }} />);
+    fireEvent.change(screen.getByLabelText('A scene'), { target: { value: 'Chain' } });
+    act(() => video.dispatchEvent(new Event('pause')));
+    expect(screen.getByText(/Scene: Chain/)).toBeTruthy();
   });
 
   it('says when the last change could not be made', () => {

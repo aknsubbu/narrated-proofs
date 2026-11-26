@@ -26,7 +26,16 @@ export function scopeLabel(scope, chaptered = false) {
  * a scene, a block, or the moment the video is paused at; attach notes, such as a photo of the
  * notation to use; and choose whether the new version waits at its storyboard before rendering.
  */
-export default function RevisionBar({ g, chapters = [], chapter = null, scope, setScope, videoRef, toast, inputRef }) {
+// Under the video, asking is one tap away: these start the sentence, and the learner finishes it.
+export const QUICK_ASKS = [
+  'Explain this more simply',
+  'Go slower here',
+  'Show an example',
+  'Why does this step work?',
+];
+
+export default function RevisionBar({ g, chapters = [], chapter = null, scope, setScope, videoRef, toast, inputRef, variant = 'bar' }) {
+  const asking = variant === 'ask'; // under the video on the Watch page
   const [request, setRequest] = useState('');
   const [files, setFiles] = useState([]);
   const [review, setReview] = useState(g.settings?.lesson?.review === 'storyboard');
@@ -47,6 +56,13 @@ export default function RevisionBar({ g, chapters = [], chapter = null, scope, s
       video.removeEventListener('play', onPlay);
     };
   });
+
+  // Asking from the Watch page: pausing the video means "about this moment", and playing again lets go of it.
+  useEffect(() => {
+    if (!asking) return;
+    if (paused != null && scope.kind === 'lesson') setScope({ kind: 'time', at: Math.round(paused * 10) / 10 });
+    else if (paused == null && scope.kind === 'time') setScope({ kind: 'lesson' });
+  }, [asking, paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A lesson in chapters is changed a chapter at a time: the one shown, or the one a block is in.
   const chaptered = chapters.length > 0;
@@ -89,7 +105,22 @@ export default function RevisionBar({ g, chapters = [], chapter = null, scope, s
   };
 
   return (
-    <section className="revision-bar" aria-label="Ask for a change">
+    <section className={`revision-bar${asking ? ' asking' : ''}`} aria-label={asking ? 'Ask for a different explanation' : 'Ask for a change'}>
+      {asking && (
+        <div className="ask-head">
+          <h3>Ask for a different explanation</h3>
+          <p className="hint">
+            {paused != null
+              ? <>Pause anywhere and ask about that moment. You are asking about <strong>{fmtDuration(paused)}</strong>.</>
+              : 'Pause the video where you got lost, then ask. A new version is written and the video you are watching keeps playing until it is ready.'}
+          </p>
+          <div className="quick-asks" role="group" aria-label="Quick requests">
+            {QUICK_ASKS.map((q) => (
+              <button key={q} type="button" className="tag clickable" onClick={() => { setRequest((r) => (r.trim() ? r : q)); inputRef?.current?.focus(); }}>{q}</button>
+            ))}
+          </div>
+        </div>
+      )}
       {last && !last.ok && last.error !== 'Cancelled' && (
         <p className="hint over-limit">The last change, “{last.request.slice(0, 80)}”, could not be made: {last.error} The lesson is as it was.</p>
       )}
@@ -97,7 +128,7 @@ export default function RevisionBar({ g, chapters = [], chapter = null, scope, s
         ref={inputRef}
         className="input short"
         aria-label="What to change"
-        placeholder={'Ask for a change: “slow down the second scene”, “use my notation for the loss”'}
+        placeholder={asking ? 'Or say it in your own words: “I do not get why we divide by n”' : 'Ask for a change: “slow down the second scene”, “use my notation for the loss”'}
         value={request}
         maxLength={4000}
         onChange={(e) => setRequest(e.target.value)}

@@ -30,6 +30,26 @@
 
 export const STATUSES = ['queued', 'processing', 'awaiting', 'done', 'error', 'cancelled'];
 
+/**
+ * The status changes the server makes, from each status. A move to the same status is always allowed. The
+ * store checks every status change against this: a move not listed throws under the tests, so a bug fails
+ * there, and in use it is logged with the item and the move and still made, so nothing is left stuck because
+ * this table missed a case. It holds for every item, not only lessons: audio and videos use the same statuses.
+ */
+export const MOVES = {
+  queued: ['processing', 'cancelled', 'error'],
+  processing: ['done', 'error', 'cancelled', 'awaiting', 'queued'],
+  awaiting: ['queued', 'processing', 'cancelled'],
+  done: ['processing', 'queued'],
+  error: ['queued', 'processing', 'done'],
+  cancelled: ['queued', 'processing', 'done'],
+};
+
+/** True when an item may go from status `from` to status `to`. */
+export function canMove(from, to) {
+  return from === to || Boolean(MOVES[from]?.includes(to));
+}
+
 /** What an awaiting lesson waits for, by its settings.lesson.phase. */
 const WAITING = { outline: 'outline', script: 'narration' };
 

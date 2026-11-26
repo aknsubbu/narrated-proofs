@@ -203,6 +203,7 @@ test('a lesson Claude cannot get right fails with the reason, and Retry resumes 
   assert.match(box.asked()[0].stdin, /It does not build yet/);
 
   // Once written, a retry (say after a failed build) only builds.
+  store.update(g.id, { status: 'processing' });
   store.update(g.id, { status: 'error', error: 'x' });
   box.answers([]);
   await j('POST', `/api/generations/${g.id}/retry`);

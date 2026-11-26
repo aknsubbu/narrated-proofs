@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { canMove } from './lesson-state.js';
 import { migrate } from './migrations.js';
 import { cleanText } from './text.js';
 
@@ -100,7 +101,11 @@ function withCost(settings, costUsd) {
   return { ...settings, lesson: costUsd == null ? lesson : { ...lesson, costUsd: round3(costUsd) } };
 }
 
-export function createStore(dataDir) {
+/**
+ * `strictMoves`: throw on a status change lesson-state.js does not allow, instead of logging it and making it.
+ * On under the tests (node --test sets NODE_TEST_CONTEXT), so a wrong move fails them.
+ */
+export function createStore(dataDir, { strictMoves = Boolean(process.env.NODE_TEST_CONTEXT) } = {}) {
   const audioDir = path.join(dataDir, 'audio');
   const previewDir = path.join(dataDir, 'previews');
   const videoDir = path.join(dataDir, 'video');
@@ -138,9 +143,21 @@ export function createStore(dataDir) {
   /** A built video, its captions and its poster: ext is mp4, srt, vtt or jpg. */
   const videoPath = (id, ext = 'mp4') => path.join(videoDir, `${id}.${ext}`);
 
+  const statusStmt = db.prepare('SELECT status FROM generations WHERE id = ?');
+
+  /** Checks a status change against the allowed moves (see MOVES in lesson-state.js). */
+  function checkMove(id, to) {
+    const from = statusStmt.get(id)?.status;
+    if (from === undefined || canMove(from, to)) return;
+    const message = `Item ${id} cannot move from ${from} to ${to}`;
+    if (strictMoves) throw new Error(message);
+    console.warn(`${message}; made the change anyway so it is not left stuck.`);
+  }
+
   function update(id, patch) {
     const keys = Object.keys(patch).filter((k) => UPDATABLE.has(k));
     if (!keys.length) return;
+    if (keys.includes('status')) checkMove(id, patch.status);
     const set = keys.map((k) => `${k} = @${k}`).join(', ');
     db.prepare(`UPDATE generations SET ${set} WHERE id = @id`).run({ ...patch, id });
     events.emit('change', id, ownerStmt.get(id)?.profile_id);

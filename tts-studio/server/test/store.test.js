@@ -83,3 +83,30 @@ test('a restart queues the waiting jobs again, oldest first, and marks only the 
   assert.equal(store.get('built').status, 'done');
   assert.equal(store.markInterrupted(), 0, 'nothing is left to interrupt');
 });
+
+test('a status change the allowed moves do not name fails under the tests, and in use is logged and made', (t) => {
+  store.insert(row('moving'));
+  store.update('moving', { status: 'processing' });
+  store.update('moving', { status: 'processing', stage: 'Building' }); // staying put is fine
+  store.update('moving', { title: 'renamed' }); // no status, no check
+  store.update('moving', { status: 'done' });
+  assert.throws(() => store.update('moving', { status: 'error' }), /Item moving cannot move from done to error/);
+  assert.equal(store.get('moving').status, 'done', 'a refused move changes nothing');
+
+  // In use the store is lenient, so a case the table missed never leaves a lesson stuck.
+  const lenientDir = fs.mkdtempSync(path.join(os.tmpdir(), 'np-store-lenient-'));
+  const lenient = createStore(lenientDir, { strictMoves: false });
+  const warn = t.mock.method(console, 'warn', () => {});
+  try {
+    lenient.insert(row('loose'));
+    lenient.update('loose', { status: 'error', error: 'x' });
+    assert.equal(lenient.get('loose').status, 'error');
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(warn.mock.calls[0].arguments[0], /Item loose cannot move from done to error; made the change anyway/);
+    lenient.update('loose', { status: 'queued' });
+    assert.equal(warn.mock.callCount(), 1, 'an allowed move is not logged');
+  } finally {
+    lenient.close();
+    fs.rmSync(lenientDir, { recursive: true, force: true });
+  }
+});

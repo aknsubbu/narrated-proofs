@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { approved, can, check, LessonStateError, nextPhase, stateOf, STATUSES, to } from '../lesson-state.js';
+import { approved, can, canMove, check, LessonStateError, MOVES, nextPhase, stateOf, STATUSES, to } from '../lesson-state.js';
 
 const row = (status, phase) => ({ status, settings_json: JSON.stringify({ project: 'p', lesson: phase === undefined ? {} : { phase } }) });
 
@@ -69,4 +69,23 @@ test('every move into a state leaves the row the same way, and extras add to it'
   assert.equal(to.done().status, 'done');
   assert.deepEqual(to.queued({ settings_json: '{}' }).settings_json, '{}');
   assert.equal(to.processing('x', { finished_at: null }).finished_at, null);
+});
+
+test('the allowed moves cover every status, name only real ones, and staying put is always allowed', () => {
+  assert.deepEqual(Object.keys(MOVES).sort(), [...STATUSES].sort());
+  for (const [from, tos] of Object.entries(MOVES)) {
+    for (const t of tos) assert.ok(STATUSES.includes(t), `${from} -> ${t}`);
+    assert.ok(canMove(from, from));
+  }
+  // What the server does: start, finish, fail, wait, approve, retry, edit a built lesson.
+  for (const [from, t] of [['queued', 'processing'], ['processing', 'done'], ['processing', 'error'], ['processing', 'awaiting'],
+    ['awaiting', 'queued'], ['error', 'queued'], ['cancelled', 'processing'], ['done', 'processing']]) {
+    assert.ok(canMove(from, t), `${from} -> ${t}`);
+  }
+  // What it never does: a built lesson does not fail without being worked on, nor wait for the person again.
+  for (const [from, t] of [['done', 'error'], ['done', 'awaiting'], ['done', 'cancelled'], ['queued', 'done'], ['error', 'awaiting']]) {
+    assert.equal(canMove(from, t), false, `${from} -> ${t}`);
+  }
+  assert.equal(canMove('done', 'finished'), false);
+  assert.equal(canMove('nonsense', 'done'), false);
 });

@@ -6,6 +6,7 @@ import { VIDEO_QUALITIES } from '../shared/limits.js';
 import { filesIn, hashOf, readProjectText } from './edits.js';
 import { chapterDir } from './versions.js';
 import { WAITING_STAGE } from '../author/jobs.js';
+import { nextPhase, to } from './lesson-state.js';
 
 /**
  * Follows lessons through the lesson writer's job queue (author/jobs.js).
@@ -69,7 +70,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
 
   function fail(id, message) {
     unwatch(id);
-    store.update(id, { status: 'error', error: message, stage: null, finished_at: Date.now() });
+    store.update(id, to.failed(message));
   }
 
   /**
@@ -85,15 +86,6 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       return false;
     }
   }
-
-  /**
-   * What the writer does next: for a long lesson, its outline (when the person reviews it) and then
-   * its chapters; for a narration approved first, the narration and then the scenes.
-   */
-  const phaseOf = (lesson) => {
-    if (lesson?.chaptered) return lesson.outlineReview && !lesson.outlineApproved ? 'outline' : undefined;
-    return lesson?.review === 'script' ? (lesson.scriptApproved ? 'scenes' : 'script') : undefined;
-  };
 
   /**
    * Who writes each step, and what the lesson may still spend, from Settings as they are now.
@@ -148,10 +140,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
   async function start(id, brief, extra = {}) {
     const row = store.getRaw(id);
     const { project, lesson } = JSON.parse(row.settings_json);
-    store.update(id, {
-      status: 'processing', stage: WAITING_STAGE, error: null,
-      progress_done: 0, progress_total: 0, finished_at: null,
-    });
+    store.update(id, to.processing(WAITING_STAGE, { finished_at: null }));
     let plan;
     try {
       plan = await writerFor(lesson, row.profile_id, id);
@@ -160,7 +149,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     }
     let job;
     try {
-      const phase = phaseOf(lesson);
+      const phase = nextPhase(lesson);
       const { onSpend, ...carried } = spendFor(id, row.profile_id);
       job = jobs.submit({ project, ...brief, ...plan, ...carried, ...(phase ? { phase } : {}), ...extra }, { onSpend });
     } catch (e) {
@@ -188,7 +177,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     if (job.status === 'error') return fail(id, job.error || 'The lesson could not be written.');
     if (job.status === 'cancelled') {
       unwatch(id);
-      return store.update(id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now() });
+      return store.update(id, to.cancelled());
     }
     if (job.stage !== watch.stage) {
       watch.stage = job.stage;
@@ -222,8 +211,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       return store.update(id, {
         ...(settings.lesson.ownTitle ? {} : { title: String(o.title || row.title).slice(0, 120) }),
         settings_json: JSON.stringify(settings),
-        status: 'awaiting',
-        stage: `Outline ready: ${o.chapters.length} chapters, about ${minutes} minutes`,
+        ...to.awaiting(`Outline ready: ${o.chapters.length} chapters, about ${minutes} minutes`),
       });
     }
     // The totals stay on the row; each request's figures are in the version and in author.json.
@@ -238,8 +226,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
         char_count: script.length,
         word_count: countWords(script),
         settings_json: JSON.stringify(settings),
-        status: 'awaiting',
-        stage: 'Narration ready: have a look',
+        ...to.awaiting('Narration ready: have a look'),
       });
     }
     // What this version cost is whatever the lesson has spent that no version has: this job, the attempts before it,
@@ -292,7 +279,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     const row = store.getRaw(id);
     const { project } = JSON.parse(row.settings_json);
     const prior = { status: row.status, stage: row.stage, error: row.error, finished_at: row.finished_at };
-    store.update(id, { status: 'processing', stage: then === 'build' ? 'Checking your changes before rendering' : 'Checking your changes', error: null, progress_done: 0, progress_total: 0 });
+    store.update(id, to.processing(then === 'build' ? 'Checking your changes before rendering' : 'Checking your changes'));
     let job;
     try {
       job = jobs.submit({ project, kind: 'check', ...(chapter ? { chapter } : {}) });
@@ -338,7 +325,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       } catch (e) {
         console.error(`Could not keep version files for ${settings.project}: ${e.message}`);
       }
-      store.update(id, { status: 'queued', stage: null, error: null, progress_done: 0, finished_at: null });
+      store.update(id, to.queued());
       return runner.enqueue(id);
     }
     store.update(id, { settings_json: JSON.stringify(settings), ...watch.prior });
@@ -359,7 +346,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     const row = store.getRaw(id);
     const settings = JSON.parse(row.settings_json);
     const prior = { status: row.status, stage: row.stage, error: row.error, finished_at: row.finished_at };
-    store.update(id, { status: 'processing', stage: WAITING_STAGE, error: null, progress_done: 0, progress_total: 0 });
+    store.update(id, to.processing(WAITING_STAGE));
     let job;
     try {
       const plan = await writerFor(settings.lesson, row.profile_id, id);
@@ -409,8 +396,8 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
     } catch (e) {
       console.error(`Could not keep version files for ${settings.project}: ${e.message}`);
     }
-    if (watch.review === 'storyboard') return store.update(id, { status: 'awaiting', stage: 'Storyboard ready: have a look', error: null });
-    store.update(id, { status: 'queued', stage: null, error: null, progress_done: 0, finished_at: null });
+    if (watch.review === 'storyboard') return store.update(id, to.awaiting('Storyboard ready: have a look'));
+    store.update(id, to.queued());
     runner.enqueue(id);
   }
 
@@ -441,7 +428,7 @@ export function createLessons({ store, runner, getConfig, jobs, versions = null,
       return true;
     }
     unwatch(id);
-    store.update(id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now() });
+    store.update(id, to.cancelled());
     return true;
   }
 

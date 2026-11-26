@@ -11,6 +11,7 @@ import { SettingsError } from './settings.js';
 import { CHAPTERS_FROM, LESSON_MINUTES, MAX_NOTES, VIDEO_QUALITIES } from '../shared/limits.js';
 import { normalizeOutline } from '../author/pipeline.js';
 import { httpError, normalizeTags, sha } from './route-helpers.js';
+import { approved, check, stateOf, to } from './lesson-state.js';
 
 /**
  * Lessons: starting one, and steering it once it is running (retry, cancel, approve, outline,
@@ -139,7 +140,7 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
   r.post('/generations/:id/retry', async (req, res) => {
     const row = findOwned(req);
     if (!row) throw httpError(404, 'Not found');
-    if (!['error', 'cancelled'].includes(row.status)) throw httpError(409, 'Only failed or cancelled items can be retried.');
+    check(row, 'retry');
     if (row.kind !== 'video') checkVoice(row.voice_id); // a video's voice is checked by its build
     const settings = JSON.parse(row.settings_json);
     if (settings.lesson && lessons && !lessons.isWritten(settings.project)) {
@@ -147,7 +148,7 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
       await lessons.start(row.id);
       return res.json(store.get(row.id));
     }
-    store.update(row.id, { status: 'queued', error: null, progress_done: 0, finished_at: null });
+    store.update(row.id, to.queued());
     runner.enqueue(row.id);
     res.json(store.get(row.id));
   });
@@ -155,9 +156,9 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
   r.post('/generations/:id/cancel', (req, res) => {
     const row = findOwned(req);
     if (!row) throw httpError(404, 'Not found');
-    if (row.status === 'awaiting') {
+    if (stateOf(row).status === 'awaiting') {
       // Waiting on the person: cancelling means "don't render it". Retry renders it after all.
-      store.update(row.id, { status: 'cancelled', error: 'Cancelled', stage: null, finished_at: Date.now() });
+      store.update(row.id, to.cancelled());
     } else if (!runner.cancel(row.id)) {
       lessons?.cancel(row.id);
     }
@@ -169,18 +170,19 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
   r.post('/generations/:id/approve', async (req, res) => {
     const row = findOwned(req);
     if (!row) throw httpError(404, 'Not found');
-    if (row.status !== 'awaiting') throw httpError(409, 'This lesson is not waiting for approval.');
+    check(row, 'approve');
     const b = req.body || {};
     const settings = JSON.parse(row.settings_json);
-    const narration = settings.lesson?.phase === 'script';
-    if (settings.lesson?.phase === 'outline') {
+    const { waitingFor } = stateOf(row);
+    const narration = waitingFor === 'narration';
+    if (waitingFor === 'outline') {
       // The outline is approved, as it is or as edited here: the chapters are written.
       if ((b.action ?? 'chapters') !== 'chapters') throw httpError(409, 'This lesson is waiting on its outline: approve it with { action: "chapters" }.');
       if (!lessons) throw httpError(503, 'Lessons are not set up on this server.');
       if (b.outline) saveOutline(row, b.outline);
       const fresh = JSON.parse(store.getRaw(row.id).settings_json);
       if (VIDEO_QUALITIES.includes(b.quality)) fresh.quality = b.quality;
-      fresh.lesson = { ...fresh.lesson, outlineApproved: true, phase: null };
+      fresh.lesson = approved(fresh.lesson, 'outline');
       store.update(row.id, { settings_json: JSON.stringify(fresh) });
       await lessons.start(row.id);
       return res.json(store.get(row.id));
@@ -190,14 +192,14 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
       if (action !== 'scenes') throw httpError(409, 'This lesson is waiting on its narration: approve it with { action: "scenes" }.');
       if (!lessons) throw httpError(503, 'Lessons are not set up on this server.');
       if (VIDEO_QUALITIES.includes(b.quality)) settings.quality = b.quality;
-      settings.lesson = { ...settings.lesson, scriptApproved: true };
+      settings.lesson = approved(settings.lesson, 'narration');
       store.update(row.id, { settings_json: JSON.stringify(settings) });
       await lessons.start(row.id);
       return res.json(store.get(row.id));
     }
     if (action !== 'render') throw httpError(400, 'This lesson is waiting on its storyboard: approve it with { action: "render" }.');
     if (VIDEO_QUALITIES.includes(b.quality)) settings.quality = b.quality;
-    store.update(row.id, { status: 'queued', stage: null, error: null, progress_done: 0, finished_at: null, settings_json: JSON.stringify(settings) });
+    store.update(row.id, to.queued({ settings_json: JSON.stringify(settings) }));
     runner.enqueue(row.id);
     res.json(store.get(row.id));
   });
@@ -223,7 +225,7 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
   }
   const waitingOnOutline = (row) => {
     if (!row) throw httpError(404, 'Not found');
-    if (row.status !== 'awaiting' || JSON.parse(row.settings_json).lesson?.phase !== 'outline') throw httpError(409, 'The outline can be changed only while it waits for you, before the chapters are written.');
+    check(row, 'editOutline');
   };
 
   r.get('/generations/:id/outline', (req, res) => {
@@ -239,7 +241,7 @@ export function lessonRoutes({ store, runner, engine, lessons, versions, setting
     res.json({
       ...outline,
       chapters: outline.chapters.map((c) => ({ ...c, written: fs.existsSync(path.join(root, 'chapters', c.id, 'author.json')) })),
-      waiting: row.status === 'awaiting' && JSON.parse(row.settings_json).lesson?.phase === 'outline',
+      waiting: stateOf(row).waitingFor === 'outline',
     });
   });
 

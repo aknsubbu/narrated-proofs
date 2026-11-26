@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../author/proc.js';
 import { chapterDir, chaptersOf, copySources } from './versions.js';
+import { to } from './lesson-state.js';
 
 export const MAX_SOURCE = 200 * 1024; // bytes in script.txt or scenes.py
 const pad = (n) => String(n).padStart(3, '0');
@@ -213,10 +214,10 @@ export function createEdits({ store, versions, getConfig, runner, lessons }) {
     const settings = JSON.parse(row.settings_json);
     store.update(row.id, { text: script, char_count: script.length, word_count: script.split(/\s+/).filter(Boolean).length });
     if (versions.adopt(row.id, n, m)) {
-      store.update(row.id, { status: 'done', stage: null, error: null, finished_at: Date.now(), duration_sec: v.duration_sec ?? row.duration_sec });
+      store.update(row.id, to.done({ duration_sec: v.duration_sec ?? row.duration_sec }));
     } else {
       if (v.quality) settings.quality = v.quality;
-      store.update(row.id, { status: 'queued', stage: null, error: null, progress_done: 0, finished_at: null, settings_json: JSON.stringify(settings) });
+      store.update(row.id, to.queued({ settings_json: JSON.stringify(settings) }));
       runner.enqueue(row.id);
     }
     return store.get(row.id);

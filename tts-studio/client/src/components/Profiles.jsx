@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { fmtUsd } from '../utils.js';
+import { summaryFor } from '../progress.js';
 
 /**
- * People who share this install: the "Who's watching?" screen (#who), the PIN prompt, the menu in
+ * People who share this install: the "Who’s learning?" screen (#who), the PIN prompt, the menu in
  * the header, and managing a profile (#profile). A profile is a name, an avatar (a colour and an
  * initial or emoji, never an image) and an optional 4-digit PIN. The PIN keeps housemates out of
  * each other's libraries; it is not security against someone with access to this computer.
@@ -245,7 +246,14 @@ function AddProfile({ onCancel, onAdded, needsOwnerPin }) {
   );
 }
 
-/** "Who's watching?": a tile per profile, a padlock on locked ones, Add profile, and Manage profiles. */
+/** Under a name: how many lessons they are partway through, so choosing a profile also says where they left off. */
+export function TileProgress({ profile }) {
+  const { started, finished } = summaryFor(profile);
+  const text = started ? `${started} in progress` : finished ? `${finished} finished` : '';
+  return text ? <span className="tile-sub">{text}</span> : null;
+}
+
+/** "Who’s learning?": a tile per profile, a padlock on locked ones, Add profile, and Manage profiles. */
 export function WhoIsWatching({ onSignedIn, onBack }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -270,7 +278,7 @@ export function WhoIsWatching({ onSignedIn, onBack }) {
   return (
     <main className="who" aria-labelledby="who-title">
       {onBack && <button className="link who-back" onClick={onBack}>← Back</button>}
-      <h1 id="who-title">{manage ? 'Manage profiles' : 'Who’s watching?'}</h1>
+      <h1 id="who-title">{manage ? 'Manage profiles' : 'Who’s learning?'}</h1>
       {error && <p className="field-error" role="alert">{error}</p>}
       {!data && !error && <p className="hint">Loading…</p>}
       {data && (
@@ -284,6 +292,7 @@ export function WhoIsWatching({ onSignedIn, onBack }) {
                   {manage && <span className="pencil" aria-hidden="true">✎</span>}
                 </span>
                 <span className="tile-name">{p.name}</span>
+                <TileProgress profile={p} />
               </button>
             </li>
           ))}
@@ -549,7 +558,7 @@ export function ManageProfile({ profile, onClose, onChanged, toast }) {
             </Toggle>
             {!you.locked && <p className="hint">Set a PIN on your profile first.</p>}
             <h3>Other profiles</h3>
-            {others.length === 0 && <p className="hint">No one else yet. They can add themselves from “Who’s watching?”.</p>}
+            {others.length === 0 && <p className="hint">No one else yet. They can add themselves from “Who’s learning?”.</p>}
             <ul className="other-profiles">
               {others.map((p) => <OtherProfile key={p.id} p={p} you={you} reload={reload} toast={toast} />)}
             </ul>

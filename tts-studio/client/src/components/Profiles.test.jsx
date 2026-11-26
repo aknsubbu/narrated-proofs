@@ -36,13 +36,30 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-describe('Who’s watching?', () => {
+describe('Who’s learning?', () => {
   it('shows a tile per profile with a padlock label on locked ones, and an Add profile tile', async () => {
     render(<WhoIsWatching onSignedIn={() => {}} />);
-    expect(await screen.findByRole('heading', { name: 'Who’s watching?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Who’s learning?' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sam, locked with a PIN' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Robin' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Add profile/ })).toBeTruthy();
+  });
+
+  it('says under each name how many lessons they are partway through', async () => {
+    localStorage.setItem('tts-studio.progress', JSON.stringify({ a: { t: 30, d: 100, at: 1 }, b: { t: 50, d: 100, at: 2 } })); // the Owner's
+    localStorage.setItem('tts-studio.progress.r1', JSON.stringify({ a: { t: 99, d: 100, at: 1 } })); // Robin has finished one
+    render(<WhoIsWatching onSignedIn={() => {}} />);
+    await screen.findByRole('button', { name: 'Robin' });
+    expect(within(screen.getByRole('button', { name: 'Sam, locked with a PIN' }).closest('li')).getByText('2 in progress')).toBeTruthy();
+    expect(within(screen.getByRole('button', { name: 'Robin' }).closest('li')).getByText('1 finished')).toBeTruthy();
+    localStorage.clear();
+  });
+
+  it('says nothing under a name that has not started a lesson', async () => {
+    localStorage.clear();
+    render(<WhoIsWatching onSignedIn={() => {}} />);
+    await screen.findByRole('button', { name: 'Robin' });
+    expect(document.querySelector('.tile-sub')).toBeNull();
   });
 
   it('hides Add profile at the limit', async () => {

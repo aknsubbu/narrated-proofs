@@ -22,11 +22,11 @@ describe('Root', () => {
     expect(api.profiles).not.toHaveBeenCalled();
   });
 
-  it('shows Who’s watching? when no one has chosen yet', async () => {
+  it('shows Who’s learning? when no one has chosen yet', async () => {
     api.session.mockResolvedValue({ profile: null, needsGate: true });
     api.profiles.mockResolvedValue({ profiles: [SAM], max: 5, canAdd: true });
     render(<Root />);
-    expect(await screen.findByRole('heading', { name: 'Who’s watching?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Who’s learning?' })).toBeTruthy();
     expect(screen.queryByText(/the dashboard/)).toBeNull();
   });
 
@@ -35,7 +35,7 @@ describe('Root', () => {
     api.session.mockResolvedValue({ profile: SAM, needsGate: false, implicit: true });
     api.profiles.mockResolvedValue({ profiles: [SAM], max: 5, canAdd: true });
     render(<Root />);
-    expect(await screen.findByRole('heading', { name: 'Who’s watching?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Who’s learning?' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '← Back' })).toBeTruthy();
   });
 
@@ -48,7 +48,7 @@ describe('Root', () => {
     act(() => {
       window.dispatchEvent(new Event('tts:signin'));
     });
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Who’s watching?' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Who’s learning?' })).toBeTruthy());
   });
 
   it('still opens the page when the server does not answer, so its own banner can say so', async () => {

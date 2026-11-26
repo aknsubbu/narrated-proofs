@@ -6,7 +6,7 @@ import { WhoIsWatching } from './components/Profiles.jsx';
 
 /**
  * Who is using the dashboard. A install with one profile and no PIN has no gate: the dashboard opens
- * as it always did. With more people, or a PIN, this shows "Who's watching?" until someone has chosen,
+ * as it always did. With more people, or a PIN, this shows "Who’s learning?" until someone has chosen,
  * and again whenever their session ends (a PIN was reset, the profile was deleted, they signed out).
  */
 export default function Root() {

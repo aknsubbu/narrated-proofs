@@ -761,3 +761,4 @@ del { background: var(--err-soft); color: var(--err); border-radius: 3px; }
 .approve-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius); box-shadow: 0 -4px 24px rgba(20, 20, 40, 0.16); padding: 12px 16px; }
 .approve-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 280px; }
 .approve-card .approve { align-items: center; }
+.tile-sub { font-size: 13px; color: var(--muted); text-align: center; }

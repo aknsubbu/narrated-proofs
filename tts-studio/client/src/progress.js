@@ -65,6 +65,19 @@ export function stateOf(p) {
 /** Where to resume: the saved second, or 0 when there is nothing to resume. */
 export const resumeAt = (p) => (stateOf(p) === 'started' ? p.t : 0);
 
+/** How many lessons a profile has partly watched and finished, as this browser remembers it. */
+export function summaryFor(profile) {
+  let all = {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${BASE}${profile && !profile.isOwner ? `.${profile.id}` : ''}`) || '{}');
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) all = raw;
+  } catch {
+    /* unreadable: nothing to say */
+  }
+  const states = Object.values(all).map(stateOf);
+  return { started: states.filter((s) => s === 'started').length, finished: states.filter((s) => s === 'finished').length };
+}
+
 /** All progress, kept current as the player writes it (here or in another tab). */
 export function useProgress() {
   const [all, setAll] = useState(readProgress);

@@ -733,3 +733,15 @@ del { background: var(--err-soft); color: var(--err); border-radius: 3px; }
 .rail-notation code { min-width: 56px; }
 .more-menu .menu-list .menu-danger { text-align: left; background: none; border: none; border-radius: 7px; padding: 7px 10px; color: var(--err); font-size: 14px; }
 .more-menu .menu-list .menu-danger:hover { background: var(--panel-2); }
+
+/* The profile menu's absolute .menu rule must not float the lesson's More menu. */
+.menu.more-menu { position: relative; top: auto; right: auto; min-width: 0; padding: 0; border: none; box-shadow: none; background: none; display: block; z-index: 4; }
+.more-menu .menu-list { z-index: 20; }
+
+/* The Make summary: cost and button on one line, so it covers less of the form. */
+@media (min-width: 560px) {
+  .make-summary { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 14px; }
+  .make-summary > :first-child { flex: 1 1 280px; min-width: 0; }
+  .make-summary .btn.big { flex: none; }
+  .make-summary > .hint { flex-basis: 100%; }
+}

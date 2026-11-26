@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { fmtUsd, SETTINGS_SECTIONS, settingsSection, timeAgo } from '../utils.js';
 import { EFFORTS, PROVIDER_KINDS, WRITER_STEPS } from '../../../shared/providers.js';
 import { LESSON_MINUTES } from '../../../shared/limits.js';
-import { QUALITIES } from './Workspace.jsx';
+import { QUALITIES } from './qualities.js';
 
 const fmtTokens = (n) => (n >= 1000 ? `${Math.round(n / 1000).toLocaleString()}k` : String(n));
 const providerName = (p) => (p ? p.label : 'unknown');

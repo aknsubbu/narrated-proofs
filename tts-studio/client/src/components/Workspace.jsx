@@ -6,6 +6,8 @@ import { NoteFiles, VideoPlayer } from './Drawer.jsx';
 import Storyboard from './Storyboard.jsx';
 import Rail from './Rail.jsx';
 import RevisionBar from './RevisionBar.jsx';
+import ApproveCard, { PhaseBar } from './Review.jsx';
+import { QUALITIES } from './qualities.js';
 
 // The editor and the diffs are most of the page's code, so they load when their tab is opened.
 const EditTab = lazy(() => import('./EditTab.jsx'));
@@ -13,13 +15,7 @@ const History = lazy(() => import('./History.jsx'));
 const Outline = lazy(() => import('./Outline.jsx'));
 
 const TAB_LABELS = { watch: 'Watch', outline: 'Outline', storyboard: 'Storyboard', edit: 'Fine-tune', history: 'Versions', notes: 'Notes' };
-export const QUALITIES = [
-  ['default', '1080p'],
-  ['medium', '720p'],
-  ['low', '480p, quickest'],
-  ['4k', '4K'],
-  ['hd', '1080p (hd)'],
-];
+export { QUALITIES }; // kept so existing imports keep working; the list lives in qualities.js
 
 const SOURCE = { written: 'Written', edited: 'Edited', revised: 'Revised', restored: 'Restored' };
 
@@ -226,19 +222,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
             {!watching && versionChip}
             {!watching && <StatusBadge g={g} />}
             {!watching && <span className="grow" />}
-            {needsYou(g) && (
-              <div className="row approve">
-                <select className="input" aria-label="Quality" value={quality} onChange={(e) => setQuality(e.target.value)}>
-                  {QUALITIES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                </select>
-                {outlining
-                  ? tab !== 'outline' && <a className="btn primary" href={tabLink('outline')}>Review the outline</a>
-                  : narration
-                    ? <button className="btn primary" onClick={() => onApprove(g, { quality, action: 'scenes' })}>Approve the narration</button>
-                    : <button className="btn primary" onClick={() => onApprove(g, { quality })}>Approve and render</button>}
-              </div>
-            )}
-            {(isActive(g) || needsYou(g)) && <button className="btn" onClick={() => onCancel(g)}>{needsYou(g) ? 'Don’t render' : 'Cancel'}</button>}
+            {isActive(g) && <button className="btn" onClick={() => onCancel(g)}>Cancel</button>}
             {(g.status === 'error' || g.status === 'cancelled') && <button className="btn primary" onClick={() => onRetry(g)}>Retry</button>}
             {!watching && fileActions}
             </div>
@@ -255,6 +239,7 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
           </div>
 
           <div className={`ws-body ${watching ? 'wide' : ''}`}>
+            {needsYou(g) && <PhaseBar g={g} />}
             {tab === 'watch' && (
               <div className={`yt ${g.videoUrl ? '' : 'no-video'}`}>
                 <div className="yt-main">
@@ -333,7 +318,23 @@ export default function Workspace({ id, tab: asked, autoplay, summary, voices = 
               {tab === 'edit' && !outlining && <EditTab key={chapter || 'lesson'} g={g} chapter={chapter} voices={voices} toast={toast} dirtyRef={editDirty} />}
               {tab === 'history' && !outlining && <History g={g} chapter={chapter} toast={toast} />}
             </Suspense>
-            {canRevise && !(tab === 'watch' && g.videoUrl) && <RevisionBar key={g.id} g={g} chapters={chapters} chapter={chapter} scope={scope} setScope={setScope} videoRef={tab === 'watch' ? videoRef : null} toast={toast} inputRef={askRef} />}
+            {/* While it waits for a look, the approval and the change bar share one footer that stays in view. */}
+            <div className={needsYou(g) ? 'review-foot' : 'foot-slot'}>
+              {needsYou(g) && (
+                <ApproveCard
+                  g={g}
+                  quality={quality}
+                  setQuality={setQuality}
+                  outlining={outlining}
+                  narration={narration}
+                  onOutlineTab={tab === 'outline'}
+                  outlineHref={tabLink('outline')}
+                  onApprove={onApprove}
+                  onCancel={onCancel}
+                />
+              )}
+              {canRevise && !(tab === 'watch' && g.videoUrl) && <RevisionBar key={g.id} g={g} chapters={chapters} chapter={chapter} scope={scope} setScope={setScope} videoRef={tab === 'watch' ? videoRef : null} toast={toast} inputRef={askRef} />}
+            </div>
             {tab === 'notes' && (
               <div className="ws-notes">
                 {lesson && (

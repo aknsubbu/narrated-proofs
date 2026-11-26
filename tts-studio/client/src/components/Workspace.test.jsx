@@ -93,6 +93,23 @@ describe('the lesson workspace', () => {
     });
   });
 
+  it('says where a lesson is in its steps while it waits for a look, and keeps approving in view', async () => {
+    show();
+    const approve = await screen.findByRole('region', { name: 'Approve this lesson' });
+    expect(screen.getByRole('list', { name: 'Where this lesson is' })).toBeTruthy();
+    // The approval and the change bar share one footer, so they cannot cover each other.
+    const foot = approve.closest('.review-foot');
+    expect(foot).toBeTruthy();
+    expect(foot.contains(screen.getByRole('region', { name: 'Ask for a change' }))).toBe(true);
+  });
+
+  it('shows no phase bar or approval for a lesson that is finished', async () => {
+    show({ status: 'done', stage: null, version: 2, builtVersion: 2, videoUrl: '/v', durationSec: 60 });
+    await screen.findByRole('region', { name: 'Ask for a different explanation' });
+    expect(screen.queryByRole('list', { name: 'Where this lesson is' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Approve this lesson' })).toBeNull();
+  });
+
   it('keeps the ask-for-a-different-explanation bar for when there is a video to ask about', async () => {
     show(); // waiting at its storyboard: nothing to watch yet, so the change bar stays at the foot of the page
     await screen.findByRole('button', { name: 'Approve and render' });

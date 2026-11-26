@@ -2,101 +2,13 @@ import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { migrate } from './migrations.js';
 import { cleanText } from './text.js';
 
 // Control characters wrap matches in search snippets. The client splits on them
 // and renders <mark> elements, so no HTML is ever injected.
 export const MARK_START = '\u0001';
 export const MARK_END = '\u0002';
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS generations (
-  seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-  id              TEXT NOT NULL UNIQUE,
-  title           TEXT NOT NULL,
-  source_name     TEXT,
-  text            TEXT NOT NULL,
-  text_hash       TEXT NOT NULL,
-  config_hash     TEXT NOT NULL,
-  char_count      INTEGER NOT NULL,
-  word_count      INTEGER NOT NULL,
-  voice_id        TEXT NOT NULL,
-  voice_name      TEXT,
-  model_id        TEXT NOT NULL,
-  settings_json   TEXT NOT NULL,
-  status          TEXT NOT NULL,
-  progress_done   INTEGER NOT NULL DEFAULT 0,
-  progress_total  INTEGER NOT NULL DEFAULT 0,
-  error           TEXT,
-  audio_bytes     INTEGER,
-  duration_sec    REAL,
-  favorite        INTEGER NOT NULL DEFAULT 0,
-  tags            TEXT NOT NULL DEFAULT '',
-  created_at      INTEGER NOT NULL,
-  finished_at     INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_gen_created ON generations(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_gen_config ON generations(config_hash);
-CREATE INDEX IF NOT EXISTS idx_gen_text ON generations(text_hash);
-CREATE INDEX IF NOT EXISTS idx_gen_status ON generations(status);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS gen_fts USING fts5(
-  title, text, tags,
-  content='generations', content_rowid='seq',
-  tokenize='porter unicode61'
-);
-
-CREATE TRIGGER IF NOT EXISTS gen_ai AFTER INSERT ON generations BEGIN
-  INSERT INTO gen_fts(rowid, title, text, tags) VALUES (new.seq, new.title, new.text, new.tags);
-END;
-CREATE TRIGGER IF NOT EXISTS gen_ad AFTER DELETE ON generations BEGIN
-  INSERT INTO gen_fts(gen_fts, rowid, title, text, tags) VALUES ('delete', old.seq, old.title, old.text, old.tags);
-END;
-CREATE TRIGGER IF NOT EXISTS gen_au AFTER UPDATE OF title, text, tags ON generations BEGIN
-  INSERT INTO gen_fts(gen_fts, rowid, title, text, tags) VALUES ('delete', old.seq, old.title, old.text, old.tags);
-  INSERT INTO gen_fts(rowid, title, text, tags) VALUES (new.seq, new.title, new.text, new.tags);
-END;
-
--- What deleted lessons cost, kept so deleting a lesson (or a profile) cannot reset the month's cap.
-CREATE TABLE IF NOT EXISTS cost_ledger (
-  profile_id  TEXT NOT NULL,
-  created_at  INTEGER NOT NULL,
-  cost_usd    REAL NOT NULL
-);
-
--- Each version of a lesson: what made it, what it cost, and whether it was built.
--- Its files are a snapshot in the project's versions/NNN/ folder.
-CREATE TABLE IF NOT EXISTS versions (
-  generation_id   TEXT NOT NULL,
-  n               INTEGER NOT NULL,
-  source          TEXT NOT NULL,
-  note            TEXT,
-  created_at      INTEGER NOT NULL,
-  cost_usd        REAL,
-  usage_json      TEXT,
-  check_ok        INTEGER,
-  warnings        INTEGER,
-  built_at        INTEGER,
-  quality         TEXT,
-  duration_sec    REAL,
-  video_bytes     INTEGER,
-  render_kept     INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (generation_id, n)
-);
-`;
-
-// Added after the first release; older libraries gain them on start.
-// kind is 'audio' or 'video'. stage says what a lesson is doing while Claude writes it.
-const MIGRATIONS = [
-  ['kind', "ALTER TABLE generations ADD COLUMN kind TEXT NOT NULL DEFAULT 'audio'"],
-  ['stage', 'ALTER TABLE generations ADD COLUMN stage TEXT'],
-  // The version a lesson is on, and the one its library video shows. A lesson being revised or
-  // rebuilt keeps playing the built one.
-  ['version', 'ALTER TABLE generations ADD COLUMN version INTEGER NOT NULL DEFAULT 0'],
-  ['built_version', 'ALTER TABLE generations ADD COLUMN built_version INTEGER NOT NULL DEFAULT 0'],
-  // Whose lesson it is. Rows from before profiles are '' until the Owner profile exists and takes them.
-  ['profile_id', "ALTER TABLE generations ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''"],
-];
 
 const UPDATABLE = new Set([
   'title',
@@ -183,10 +95,8 @@ export function createStore(dataDir) {
   fs.mkdirSync(previewDir, { recursive: true });
   const db = new Database(path.join(dataDir, 'studio.db'));
   db.pragma('journal_mode = WAL');
-  db.exec(SCHEMA);
-  const columns = new Set(db.prepare('PRAGMA table_info(generations)').all().map((c) => c.name));
-  for (const [column, sql] of MIGRATIONS) if (!columns.has(column)) db.exec(sql);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_gen_profile ON generations(profile_id, created_at DESC)');
+  // Every table in the file, the profiles' and settings' too, is made and changed here (see migrations.js).
+  migrate(db);
 
   const insertStmt = db.prepare(`
     INSERT INTO generations (
@@ -222,12 +132,6 @@ export function createStore(dataDir) {
     events.emit('change', id, ownerStmt.get(id)?.profile_id);
   }
 
-  // What a revision asked for and changed, on versions made before it existed too.
-  const versionColumns = new Set(db.prepare('PRAGMA table_info(versions)').all().map((c) => c.name));
-  if (!versionColumns.has('details_json')) db.exec('ALTER TABLE versions ADD COLUMN details_json TEXT');
-  // How much of a version's cost the host's own Claude sign-in or keys paid, which the Owner may limit per profile.
-  if (!versionColumns.has('host_usd')) db.exec('ALTER TABLE versions ADD COLUMN host_usd REAL');
-  if (!db.prepare('PRAGMA table_info(cost_ledger)').all().some((c) => c.name === 'host_usd')) db.exec('ALTER TABLE cost_ledger ADD COLUMN host_usd REAL');
   const versionStmts = {
     insert: db.prepare(`INSERT INTO versions (generation_id, n, source, note, created_at, cost_usd, host_usd, usage_json, check_ok, warnings, details_json)
                         VALUES (@generation_id, @n, @source, @note, @created_at, @cost_usd, @host_usd, @usage_json, @check_ok, @warnings, @details_json)`),

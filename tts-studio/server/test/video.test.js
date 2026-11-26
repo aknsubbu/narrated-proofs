@@ -211,6 +211,7 @@ test('a library from before videos gains the kind column, and old rows are audio
   const dir = path.join(dataDir, 'old-library');
   const old = createStore(dir);
   old.db.exec('ALTER TABLE generations DROP COLUMN kind');
+  old.db.pragma('user_version = 0'); // libraries from before versioned migrations all report 0
   old.db.prepare(
     `INSERT INTO generations (id, title, text, text_hash, config_hash, char_count, word_count, voice_id, model_id,
        settings_json, status, created_at) VALUES ('old', 'Old', 'Hi.', 'h', 'c', 3, 1, 'af_zed', 'kokoro-82m', '{}', 'done', 1)`,

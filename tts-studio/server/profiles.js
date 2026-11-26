@@ -19,44 +19,6 @@ export class ProfileError extends Error {
   }
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS profiles (
-  id                   TEXT PRIMARY KEY,
-  name                 TEXT NOT NULL,
-  avatar_json          TEXT NOT NULL,
-  pin_hash             TEXT,
-  pin_salt             TEXT,
-  is_owner             INTEGER NOT NULL DEFAULT 0,
-  can_use_host_claude  INTEGER NOT NULL DEFAULT 0,
-  can_use_host_keys    INTEGER NOT NULL DEFAULT 0,
-  require_pin_to_add   INTEGER NOT NULL DEFAULT 0,
-  host_cap_usd         REAL,
-  created_at           INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-  token_hash  TEXT PRIMARY KEY,
-  profile_id  TEXT NOT NULL,
-  created_at  INTEGER NOT NULL,
-  last_used   INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_profile ON sessions(profile_id);
--- What lets Claude (through the MCP connector) act as one profile. Only a hash is kept.
-CREATE TABLE IF NOT EXISTS connector_tokens (
-  id          TEXT PRIMARY KEY,
-  profile_id  TEXT NOT NULL,
-  token_hash  TEXT NOT NULL UNIQUE,
-  label       TEXT NOT NULL,
-  created_at  INTEGER NOT NULL,
-  last_used   INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_tokens_profile ON connector_tokens(profile_id);
-CREATE TABLE IF NOT EXISTS pin_attempts (
-  profile_id    TEXT PRIMARY KEY,
-  failures      INTEGER NOT NULL DEFAULT 0,
-  locked_until  INTEGER NOT NULL DEFAULT 0
-);
-`;
-
 export const COOKIE = 'tts_session';
 export const PIN_SHAPE = /^\d{4}$/;
 export const COLORS = ['#c2410c', '#0f766e', '#4338ca', '#a21caf', '#15803d', '#b91c1c', '#0369a1', '#a16207'];
@@ -76,9 +38,7 @@ const newId = () => crypto.randomBytes(8).toString('hex');
 
 /** `getMax` is read on every use, so TTS_MAX_PROFILES can change with a restart of nothing but the .env. */
 export function createProfiles({ db, dataDir, getMax = () => 5, now = () => Date.now(), ipMax = IP_MAX_ATTEMPTS }) {
-  db.exec(SCHEMA);
-  // What the Owner lets a profile spend a month with the host's Claude sign-in and keys: null is no limit.
-  if (!db.prepare('PRAGMA table_info(profiles)').all().some((c) => c.name === 'host_cap_usd')) db.exec('ALTER TABLE profiles ADD COLUMN host_cap_usd REAL');
+  // Its tables are made by createStore (see migrations.js), which opened this db.
 
   // ---------- the pepper ----------
   const pepperFile = path.join(dataDir, 'pin-pepper');

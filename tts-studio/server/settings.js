@@ -27,28 +27,6 @@ export class SettingsError extends Error {
   }
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS settings (
-  profile_id  TEXT NOT NULL DEFAULT '',
-  key         TEXT NOT NULL,
-  value_json  TEXT NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  updated_by  TEXT NOT NULL,
-  PRIMARY KEY (profile_id, key)
-);
-CREATE TABLE IF NOT EXISTS settings_history (
-  seq       INTEGER PRIMARY KEY AUTOINCREMENT,
-  profile_id TEXT NOT NULL DEFAULT '',
-  key       TEXT NOT NULL,
-  old_json  TEXT,
-  new_json  TEXT,
-  by        TEXT NOT NULL,
-  at        INTEGER NOT NULL,
-  undone    INTEGER NOT NULL DEFAULT 0,
-  undo_of   INTEGER
-);
-`;
-
 export const DEFAULTS = {
   'writer.page': DEFAULT_PLAN,
   'writer.claude': { same: true, plan: DEFAULT_PLAN },
@@ -113,21 +91,15 @@ export function checkBaseUrl(kind, value) {
 }
 
 export function createSettings({ db, getConfig, secrets, profiles = null }) {
-  // Settings from before profiles had no owner: they become the Owner's. Safe to run again.
-  const hasColumn = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
-  const hasTable = (name) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  // Settings from before profiles had no owner (the migrations leave them with an empty one): they
+  // become the Owner's. Safe to run again, since it only touches what has no owner.
   const owner = profiles?.owner().id ?? '';
-  db.transaction(() => {
-    const legacy = hasTable('settings') && !hasColumn('settings', 'profile_id');
-    if (legacy) db.exec('ALTER TABLE settings RENAME TO settings_legacy');
-    db.exec(SCHEMA);
-    if (!hasColumn('settings_history', 'profile_id')) db.exec("ALTER TABLE settings_history ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''");
-    if (legacy) {
-      db.prepare('INSERT INTO settings (profile_id, key, value_json, updated_at, updated_by) SELECT ?, key, value_json, updated_at, updated_by FROM settings_legacy').run(owner);
-      db.exec('DROP TABLE settings_legacy');
-    }
-    if (owner) db.prepare("UPDATE settings_history SET profile_id = ? WHERE profile_id = ''").run(owner);
-  })();
+  if (owner) {
+    db.transaction(() => {
+      db.prepare("UPDATE OR IGNORE settings SET profile_id = ? WHERE profile_id = ''").run(owner);
+      db.prepare("UPDATE settings_history SET profile_id = ? WHERE profile_id = ''").run(owner);
+    })();
+  }
   const stmts = {
     get: db.prepare('SELECT value_json FROM settings WHERE profile_id = ? AND key = ?'),
     put: db.prepare(`INSERT INTO settings (profile_id, key, value_json, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)

@@ -209,12 +209,14 @@ test("deleting a profile removes its settings, history and keys, and no one else
 
 test('settings and keys from before profiles go to the Owner, and migrating again changes nothing', async () => {
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'np-old-settings-'));
-  const s0 = createStore(old);
   // What the version before profiles wrote: one settings table with no owner, history without one, keys by provider.
-  s0.db.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL);
+  const raw = new Database(path.join(old, 'studio.db'));
+  raw.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL);
               CREATE TABLE settings_history (seq INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, old_json TEXT, new_json TEXT, by TEXT NOT NULL, at INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0, undo_of INTEGER);
               INSERT INTO settings VALUES ('lesson.defaults', '{"minutes":7,"quality":"low","review":"render","visualReview":false,"voiceId":""}', 1, 'you');
               INSERT INTO settings_history (key, old_json, new_json, by, at) VALUES ('lesson.defaults', NULL, '{"minutes":7}', 'you', 1);`);
+  raw.close();
+  const s0 = createStore(old);
   const sec = createSecrets({ dataDir: old, useKeychain: false });
   await sec.set('anthropic', 'sk-ant-legacy-key-1234');
   for (let run = 0; run < 2; run += 1) {

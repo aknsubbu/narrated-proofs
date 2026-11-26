@@ -360,6 +360,7 @@ test('an older library gains the stage column', () => {
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'tts-old-'));
   const first = createStore(old);
   first.db.exec('ALTER TABLE generations DROP COLUMN stage');
+  first.db.pragma('user_version = 0'); // as a library from before versioned migrations
   first.close();
   const again = createStore(old);
   assert.ok(again.db.prepare('PRAGMA table_info(generations)').all().some((c) => c.name === 'stage'));

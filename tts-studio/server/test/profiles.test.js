@@ -96,6 +96,7 @@ test('a library from before profiles lands under the Owner, and migrating again 
   const first = createStore(path.join(old, 'data'));
   // Pretend this was written by the version before profiles: no owner on its rows.
   first.db.exec("DROP INDEX idx_gen_profile; ALTER TABLE generations DROP COLUMN profile_id;");
+  first.db.pragma('user_version = 0'); // libraries from before versioned migrations all report 0
   first.db.prepare(`INSERT INTO generations (id, title, text, text_hash, config_hash, char_count, word_count, voice_id, model_id, settings_json, status, created_at)
                     VALUES ('old1', 'Old lesson', 'text', 'h', 'c', 4, 1, 'af_zed', 'm', '{}', 'done', 1)`).run();
   first.close();
